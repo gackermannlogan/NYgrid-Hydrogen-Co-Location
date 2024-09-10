@@ -12,6 +12,9 @@ function mpcreduced = updateOpCond(mpc,timeStamp,savedata,verbose,usemat)
 %   Created by Vivienne Liu, Cornell University
 %   Last modified on April 9, 2022
 
+%   Updated by Gabriela Ackermann Logan, Cornell University
+%   Last modified on September 10, 2024
+
 %% Input parameters
 
 % Read updated MATPOWER case
@@ -290,23 +293,87 @@ otherCapTot = sum(renewableGen.PgOtherCap);
 windCfTot = windGen/windCapTot;
 otherCfTot = otherGen/otherCapTot;
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% --------------------------------------------CHANGES MADE --------------------------------------------%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Add co-located hydrogen plant 
+
+% Define the hydrogen plant demand
+hydrogen_demand = 200;  % Demand in MW
+
+%Define windf arm capacity 
+wind_capacity = 250;    % Wind farm capacity in MW
+
+% Define the list of zones from A to K
+zones = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K"];
+
+%% Edit Renewable Gen table to change max to wind capacity %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 for i = 1:height(renewableGen)
-    if renewableGen.PgWindCap(i) ~= 0
-        mpc.bus(renewableGen.BusID(i),PD) = mpc.bus(renewableGen.BusID(i),PD)...
-            - windCfTot*renewableGen.PgWindCap(i);
+    if renewableGen.PgWindCap(i) < wind_capacity;
+        renewableGen.PgWindCap(i) = wind_capacity; % MW 
+    end 
+end 
+
+% Loop through each zone
+for z = 1:length(zones)
+    zone = zones(z);  % Get the current zone
+
+    % Filter the table to exclude rows where the zone is "NA"
+    busIdNY_hydro = busInfo(busInfo.zone ~= "NA", :);
+
+    % Find all bus numbers within the specified zone in the filtered table
+    busNumbersInZone = busIdNY_hydro.idx(busIdNY_hydro.zone == zone);
+
+    % Check if there are buses in this zone
+    if isempty(busNumbersInZone)
+        fprintf('No buses found in zone %s.\n', zone);
+        continue;  % Skip to the next iteration if no buses are found
     end
-    if renewableGen.PgOtherCap(i) ~= 0
-        mpc.bus(renewableGen.BusID(i),PD) = mpc.bus(renewableGen.BusID(i),PD)...
-            - otherCfTot*renewableGen.PgOtherCap(i);
+
+    % % Loop through each bus in the current zone
+    for b = 1:length(busNumbersInZone)
+        hydrogen_plant_bus = busNumbersInZone(b);  % Current bus in the zone
+
+        for i = 1:height(renewableGen)
+            if renewableGen.PgWindCap(i) ~= 0
+                % Calculate the wind generation at this bus using the capacity factor
+                wind_generation = windCfTot * renewableGen.PgWindCap(i);
+        
+                % Check if this bus is where the wind farm and hydrogen plant are co-located
+                if renewableGen.BusID(i) == hydrogen_plant_bus
+                    % Calculate wind generation for the co-located wind farm
+                    Wind_gen_hydrogen = wind_capacity;  
+        
+                    % First, meet the hydrogen plant's demand
+                    wind_after_hydrogen = Wind_gen_hydrogen - hydrogen_demand;
+        
+                    if wind_after_hydrogen > 0
+                        % Only inject the surplus into the grid (negative load)
+                        mpc.bus(renewableGen.BusID(i), PD) = mpc.bus(renewableGen.BusID(i), PD) - wind_after_hydrogen;
+                    end
+                    % If wind generation is less than the hydrogen demand, no surplus for the grid; hydrogen plant draws deficit from the grid
+        
+                else
+                    % For other wind farms, treat generation as negative load as usual
+                    mpc.bus(renewableGen.BusID(i), PD) = mpc.bus(renewableGen.BusID(i), PD) - wind_generation;
+                end
+            end
+        
+            if renewableGen.PgOtherCap(i) ~= 0
+                % For other renewables, treat generation as negative load as usual
+                mpc.bus(renewableGen.BusID(i), PD) = mpc.bus(renewableGen.BusID(i), PD) - otherCfTot * renewableGen.PgOtherCap(i);
+            end
+        end
     end
-end
-% NYLoadTot = sum(mpc.bus(37:82,PD)); % Total load in old NPCC-140 case in NY
-% % NYLoadTot = sum(loadData.PD); % Total hourly load in NYISO
-% NYLoadRatio = NYLoadTot/NYloadOld;
+end 
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% ----------------------------------------END of CHANGES MADE -----------------------------------------%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 if verbose
-    fprintf("Wind: capacity: %.2f MW; generation: %.2f MW.\n",windCapTot,windGen);
-    fprintf("Other renewable: capacity: %.2f MW; generation: %.2f MW.\n",otherCapTot,otherGen);
+    fprintf("Wind: capacity: %.2f MW; generation: %.2f MW.\n", windCapTot, windGen);
+    fprintf("Other renewable: capacity: %.2f MW; generation: %.2f MW.\n", otherCapTot, otherGen);
 end
 fprintf("Finished allocating wind and other renewables in NY!\n");
 
