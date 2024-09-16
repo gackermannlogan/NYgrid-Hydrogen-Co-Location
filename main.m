@@ -5,6 +5,9 @@
 %   Created by Vivienne Liu
 %   Last modified on Feb. 8, 2022
 
+%   Adapted by Gabriela Ackermann Logan, Cornell University 
+%   Last modified 2024
+
 clear; clc; close all;
 tic;
 
@@ -16,7 +19,7 @@ tic;
 testyear = 2019;
 testmonth = 1;
 testday = 1;
-testhour = 0;
+testhour = 1:24;
 
 %% Runtime options
 
@@ -63,7 +66,6 @@ writeNuclearGen(testyear);
 %% Modify MPC
 
 % Read original NPCC 140 MATPOWER case and make modifications.
-
 mpc = modifyMPC();
 
 %% Run the model
@@ -88,7 +90,8 @@ for y = testyear
                     mpcreduced = addRenewable(mpcreduced, timeStamp);
                 end
                 % Run power flow
-                resultPF = PFtestcase(mpcreduced,timeStamp,savefig,savedata,addrenew);
+                %resultPF = PFtestcase(mpcreduced,timeStamp,savefig,savedata,addrenew);
+
                 % Run optimal power flow
                 resultOPF = OPFtestcase(mpcreduced,timeStamp,savefig,savedata,addrenew);
                 fprintf("Success!\n");
@@ -96,5 +99,4 @@ for y = testyear
         end
     end
 end
-
 toc;
