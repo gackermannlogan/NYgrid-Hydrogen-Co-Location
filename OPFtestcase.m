@@ -60,8 +60,7 @@ end
 createDir(resultDir);
 createDir(figDir);
 
-% Run OPF
-
+%% Run OPF
 % mpopt = mpoption('opf.flow_lim','P');
 mpopt = mpoption('model', 'DC');
 mpcreduced = toggle_iflims(mpcreduced, 'on');
@@ -73,11 +72,8 @@ fprintf("Finished solving optimal power flow!\n");
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %% Calculate Shortfall for Hydrogen Plant
-% Define the hydrogen plant demand
 hydrogen_demand = 200;  % Demand in MW
-
-%Define windf arm capacity 
-wind_capacity = 250;    % Wind farm capacity in MW
+wind_capacity = 400;    % Wind farm capacity in MW
 
 % Define the list of zones from A to K
 zones = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K"];
@@ -85,43 +81,80 @@ zones = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K"];
 % Initialize an empty table to store the results
 resultsTable = table();
 
+renewableGen = importRenewableGen(fullfile("Data","RenewableGen.csv"));
+% Edit Renewable Gen table to change max to wind capacity
+for i = 1:height(renewableGen)
+   if renewableGen.PgWindCap(i) < wind_capacity
+       renewableGen.PgWindCap(i) = wind_capacity; % MW
+   end
+end
+% wind_buses = renewableGen.BusID(renewableGen.PgWindCap > 0);  % Get all buses with wind generation
+wind_buses = renewableGen.BusID;
+
 % Loop through each zone
 for z = 1:length(zones)
     zone = zones(z);  % Get the current zone
-
+    
     % Filter the table to exclude rows where the zone is "NA"
     busIdNY_hydro = busInfo(busInfo.zone ~= "NA", :);
-
+    
     % Find all bus numbers within the specified zone in the filtered table
     busNumbersInZone = busIdNY_hydro.idx(busIdNY_hydro.zone == zone);
-
+    
     % Check if there are buses in this zone
     if isempty(busNumbersInZone)
         fprintf('No buses found in zone %s.\n', zone);
         continue;  % Skip to the next iteration if no buses are found
     end
-
-    % % Loop through each bus in the current zone
-    % for b = 1:length(busNumbersInZone)
-    %     hydrogen_plant_bus = busNumbersInZone(b);  % Current bus in the zone
-
-    hydrogen_plant_bus = busNumbersInZone(1); % First bus in the zone
-
+    
+    % Find the intersection of buses in the zone, wind generators, and OPF results
+    matchingBuses = intersect(intersect(resultOPF.gen(:, 1), wind_buses), busNumbersInZone);
+    
+    % Check if there are matching wind generator buses
+    if isempty(matchingBuses)
+        fprintf('No matching wind generator buses found in zone %s.\n', zone);
+        continue;  % Skip to the next iteration if no matches are found
+    end
+    
+    % Use the first matching bus with wind generation as the hydrogen plant bus
+    hydrogen_plant_bus = matchingBuses(1);
+ 
     % Get actual generation at the hydrogen plant bus
-    actual_generation = sum(resultOPF.gen(resultOPF.gen(:, GEN_BUS) == hydrogen_plant_bus, PG));
-        
+    % actual_generation = sum(resultOPF.gen(resultOPF.gen(:, GEN_BUS) == hydrogen_plant_bus, PG));
+
+    % Find all generation values at the hydrogen plant bus
+    gen_at_hydrogen_bus = resultOPF.gen(resultOPF.gen(:, GEN_BUS) == hydrogen_plant_bus, PG);
+    
+    % Initialize actual_generation
+    actual_generation = 0;
+    
+   % wind_cap_for_bus = renewableGen.PgWindCap(renewableGen.BusID == hydrogen_plant_bus);
+    
+    % Check if the bus has wind capacity information
+    %if isempty(wind_cap_for_bus)
+    if isempty(wind_capacity)
+        fprintf('No wind capacity found for hydrogen plant bus %d.\n', hydrogen_plant_bus);
+    else
+        % Loop through each generation value at the hydrogen plant bus
+        for i = 1:length(gen_at_hydrogen_bus)
+            % Check if the generation is less than or equal to the wind capacity for that bus
+            if gen_at_hydrogen_bus(i)>= 0 && gen_at_hydrogen_bus(i) <= wind_capacity
+                actual_generation = actual_generation + gen_at_hydrogen_bus(i);  
+            end
+        end
+    end
+
     % Calculate shortfall (positive if the plant pulls from the grid)
-    shortfall = hydrogen_demand - abs(actual_generation);
-        
-        
-    %% Determine the amount of power pulled from the grid and from the wind farm
+    shortfall = hydrogen_demand - actual_generation;    
+
+    %% Determine when windfarm has 
     if shortfall > 0
         fprintf('At time %s, in zone %s, hydrogen plant at bus %d is pulling %.2f MW from the grid.\n', datestr(timeStamp), zone, hydrogen_plant_bus, shortfall);
         
         % Calculate Shortfall
         MWFromGrid = shortfall;
         MWFromWind = hydrogen_demand - MWFromGrid;
-        Windexcess = 0;  % No excess power when there's a shortfall
+        Windexcess = hydrogen_demand - (MWFromGrid + MWFromWind);  % No excess power when there's a shortfall
 
         % LMP Calculation for just bus with hydrogen plant 
         resultBus = resultOPF.bus;
@@ -129,7 +162,7 @@ for z = 1:length(zones)
         avgPrice = sum(busM(:,PD).*busM(:,LAM_P))/sum(busM(:,PD));
 
         % Append table with results 
-        newRow = {zone, hydrogen_plant_bus, timeStamp, MWFromGrid, MWFromWind, Windexcess, avgPrice}; % Append the results to the table
+        newRow = {zone, hydrogen_plant_bus, timeStamp, MWFromGrid, MWFromWind, Windexcess, actual_generation, avgPrice}; % Append the results to the table
         resultsTable = [resultsTable; newRow];
 
     else
@@ -146,7 +179,7 @@ for z = 1:length(zones)
         avgPrice = sum(busM(:,PD).*busM(:,LAM_P))/sum(busM(:,PD));
 
         % Append table with results 
-        newRow = {zone, hydrogen_plant_bus, timeStamp, MWFromGrid, MWFromWind, Windexcess, avgPrice}; % Append the results to the table
+        newRow = {zone, hydrogen_plant_bus, timeStamp, MWFromGrid, MWFromWind, Windexcess, actual_generation, avgPrice}; % Append the results to the table
         resultsTable = [resultsTable; newRow];
 
     end
@@ -175,7 +208,7 @@ if savedata
 end
 
 % Set the table column names
-resultsTable.Properties.VariableNames = {'Zone', 'Bus', 'Timestamp', 'MWFromGrid', 'MWFromWind', 'WindpowerSold', 'LMP'};
+resultsTable.Properties.VariableNames = {'Zone', 'Bus', 'Timestamp', 'MWFromGrid', 'MWFromWind', 'WindpowerSold', 'WindGen','LMP'};
 
 %% Save the HydroResultstable to a file 
 date = datestr(timeStamp);
@@ -194,7 +227,7 @@ writetable(fuelMix, fullfilepath2)
 % plotFlow(timeStamp, resultOPF, interFlow, flowLimit, type, savefig, figDir);
 % 
 % Plot fuel mix data and error
-%plotFuel(timeStamp, resultOPF, fuelMix, interFlow, type, savefig, figDir, addrenew);
+% plotFuel(timeStamp, resultOPF, fuelMix, interFlow, type, savefig, figDir, addrenew);
 % Plot price data and error
 % plotPrice(timeStamp, resultOPF, zonalPrice, busInfo, type, savefig, figDir);
 
