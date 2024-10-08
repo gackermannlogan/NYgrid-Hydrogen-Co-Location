@@ -124,7 +124,6 @@ sorted_data_monthly = filter(row ->row.YearMonth !="2020-01",sorted_data_monthly
 # println(first(sorted_data_monthly, 105))
 
 zonedata = []
-
 # Iterate over zones and plot data by sorted month
 for zone in unique(sorted_data_monthly.Zone)
     # Filter sorted data for the current zone
@@ -193,7 +192,8 @@ grouped_data_wind = combine(groupby(all_data, :Zone),
                        :WindpowerSold=> mean => :Excess_Wind)
 
 # Create the bar chart for all zones
-bar(1:length(grouped_data_wind.Zone), [grouped_data_wind.Wind_Used grouped_data_wind.Excess_Wind],
+groupedbar(1:length(grouped_data_wind.Zone), [grouped_data_wind.Wind_Used grouped_data_wind.Excess_Wind],
+    bar_position = :stack,
     label=["Wind Used for Hydrogen" "Excess Wind (MWh)" ],
     title= "When Wind Sells Power Across Zones",
     xlabel= "Zones", ylabel="Power (MWh)",
@@ -216,7 +216,7 @@ sorted_monthly_wind = filter(row ->row.YearMonth !="2020-01",sorted_monthly_wind
 # Go through each zone and plot when there is exess wind power that can be sold to the grid
 for zone in unique(sorted_monthly_wind.Zone)
     # Filter sorted data for the current zone
-    zone_data = filter(row -> row[:Zone] == zone, sorted_monthly_wind )
+    zone_data = filter(row -> row[:Zone] == zone, sorted_monthly_wind)
 
     # Convert the YearMonth string back into DateTime for this zone and get month abbreviations
     zone_data[!, :YearMonthDate] = Dates.Date.(zone_data.YearMonth, "yyyy-mm")
@@ -227,7 +227,8 @@ for zone in unique(sorted_monthly_wind.Zone)
     wind_used = [val for val in zone_data.Wind_Used]
 
     # Create the bar chart for each zone
-    bar(1:length(zone_data.YearMonth), [wind_used excess_wind],
+    groupedbar(1:length(zone_data.YearMonth), [wind_used excess_wind],
+        bar_position = :stack,
         label=["Wind Used for Hydrogen" "Excess Wind (MWh)" ],
         title= "When Wind Sells Power for $zone",
         xlabel="Month", ylabel="Power (MWh)",
@@ -266,10 +267,6 @@ for file in Fuel_mix_files
    append!(all_Fuel_data, data)
 end
 
-# Check for duplicates or inconsistencies in all_Fuel_data (optional)
-println("Total rows before filtering: ", nrow(all_Fuel_data))
-println("Unique rows in Fuel data: ", nrow(unique(all_Fuel_data)))
-
 # Convert 'TimeStamp' in all_Fuel_data from string to DateTime
 all_Fuel_data.TimeStamp = String.(all_Fuel_data.TimeStamp)
 all_Fuel_data[!, :TimeStamp] = Dates.DateTime.(all_Fuel_data.TimeStamp, "mm/dd/yyyy HH:MM:SS")
@@ -277,15 +274,12 @@ all_Fuel_data[!, :TimeStamp] = Dates.DateTime.(all_Fuel_data.TimeStamp, "mm/dd/y
 # Create an empty DataFrame to store the filtered results
 FuelMix = DataFrame()
 # Loop through each row in all_data to find the matching timestamps for when the hydrogen plant needs to buy from the windfarm
-for i in 1:100
+for i in 1:nrow(all_data)
     if all_data.MWFromGrid[i] > 0 # Find when using power from the grid
         Fuel_date = all_data[i,:]
         matched_fuel_data = filter(row -> row.TimeStamp == Fuel_date.Timestamp, all_Fuel_data)
 
         if !isempty(matched_fuel_data)
-            # Add the zone from all_data to the matched_fuel_data
-            matched_fuel_data[!,:Zone] .= Fuel_date.Zone
-
             # Append the matched fuel data to 'FuelMix'
             append!(FuelMix, matched_fuel_data)
 
@@ -298,11 +292,19 @@ end
 # Remove duplicates from the final FuelMix
 unique!(FuelMix)
 
+# Convert the timestamp to a "Year-Month" string for grouping
+FuelMix[!, :YearMonth] = Dates.format.(FuelMix.TimeStamp, "yyyy-mm")
+FuelMix[!, :YearMonthDate] = Dates.Date.(FuelMix.YearMonth, "yyyy-mm") # Convert 'YearMonth' string back into a DateTime
+FuelMix[!, :YearMonthDate] = Dates.Date.(FuelMix.YearMonth, "yyyy-mm")
+month_abbreviations_fuel = Dates.format.(FuelMix.YearMonthDate, "UUU")  # Extract month abbreviations
+unique!(month_abbreviations_fuel)
+
 # Group the merged data by Zone and FuelCategory + sum the generation
-grouped_fuelzone_data = combine(groupby(FuelMix, [:Zone, :FuelCategory]), :GenMW => mean => :Total_GenMW) 
+grouped_fuel = combine(groupby(FuelMix, [:YearMonth, :FuelCategory]), :GenMW => mean => :Total_GenMW) 
 
 # Pivot the data to make fuel categories the columns and zones the rows
-pivot_data = unstack(grouped_fuelzone_data, :Zone, :FuelCategory, :Total_GenMW)
+pivot_data = unstack(grouped_fuel, :FuelCategory, :Total_GenMW)
+
 dual_fuel = pivot_data[!, "Dual Fuel"]
 hydro = pivot_data[!, "Hydro"]
 natural_gas =  pivot_data[!, "Natural Gas"] 
@@ -314,14 +316,72 @@ wind_pivot = pivot_data[!,"Wind"]
 groupedbar([dual_fuel hydro natural_gas nuclear other_fossil other_renewables wind_pivot],
     label= ["Dual Fuel" "Hydro" "Natural Gas" "Nuclear" "Other Fossil Fuels" "Other Renewables" "Wind"],
     bar_position = :stack,
-    xlabel="Zones", ylabel="Generation (MWh)",  
-    xticks=(1:length(pivot_data.Zone), pivot_data.Zone),
-    title= "Fuel Mix by Zone",
+    xlabel="Months", ylabel="Generation (MWh)",  
+    xticks=(1:length(grouped_fuel.YearMonth), month_abbreviations_fuel),  # Use month abbreviations for x-axis labels
+    title= "Fuel Mix Over Year",
     legend=:topright,
+    rotation=45,
     color=["#648FFF" "#785EF0" "#DC267F" "#004D40" "#FE6100" "#FFB000" "#994F00"], bar_width=0.8)
 
 # Save the stacked bar chart
 savefig(joinpath(save_dir, "FuelMix_by_Zone_Stacked_Bar.png"))
 
-total_MW_grid = pivot_data[1, "Dual Fuel"]+ pivot_data.Hydro[1] + pivot_data[1, "Natural Gas"] + pivot_data.Nuclear[1] + pivot_data[1, "Other Fossil Fuels"] + pivot_data[1, "Other Renewables"] +pivot_data.Wind[1]
+#-------------------------------------------------------  Pie Chart for Fuel Mix per Zone-------------------------------------------------------#
+#=
+# Loop through each group of rows with the same timestamp to create pie charts with percentages
+for group in grouped_fuel_data
+    current_timestamp = group.TimeStamp[1]
+    fuel_category = group.FuelCategory
+    total_gen = sum(group.GenMW)  # Total generation for that timestamp
+    percentages = (group.GenMW ./ total_gen) .* 100  # Calculate percentage for each fuel category
+    # Create pie chart with percentages
+    Plots.pie(fuel_category, percentages,
+       title = "Fuel Mix (in %) for $current_timestamp",
+       legend = true)
+    savefig(joinpath(save_dir, "FuelMix_$current_timestamp.png"))
+    
+end
+=#
 
+##################################################### Plotting for when power sold vs bought #####################################################
+# Calculate total cost and revenue 
+all_data.power_sold = all_data.WindpowerSold .* all_data.LMP
+all_data.power_bought = all_data.MWFromGrid .* all_data.LMP
+
+# Group by Zone 
+group_data_sold = combine(groupby(all_data, :Zone),
+                     :power_sold => mean => :Mean_Sold,
+                     :power_bought => mean => :Mean_Bought)
+
+group_data_sold.Mean_Bought = -group_data_sold.Mean_Bought 
+
+# Create a bar chart for revenue and cost per zone
+bar(1:length(group_data_sold.Zone), [group_data_sold.Mean_Sold group_data_sold.Mean_Bought],
+    label=["Revenue" "Cost"],
+    title="Net Market Participation: Revenue vs Cost by Zone",
+    xlabel="Zone", ylabel= "Amount",
+    xticks=(1:length(group_data_sold.Zone), group_data_sold.Zone),  # Zone labels on x-axis
+    color=["#D81B60" "#1E88E5"], bar_width=0.8)
+# Save figure
+savefig(joinpath(save_dir, "Net_Market_Participation_Revenue_vs_Cost_by_Zone.png"))
+
+
+#------------------------------------------------------- Plotting by zone - net revenue vs cost -------------------------------------------------------#
+# Group by Zone 
+group_data_sold = combine(groupby(all_data, :Zone),
+                     :WindpowerSold => mean => :Total_Surplus,
+                     :MWFromGrid => mean => :Total_Demand,
+                     :LMP => mean => :Avg_LMP)  # Use mean for LMP per zone                  
+group_data_sold.Surplus_Sold = group_data_sold.Total_Surplus .* group_data_sold.Avg_LMP  # Revenue from selling power
+group_data_sold.Power_Bought = group_data_sold.Total_Demand .* group_data_sold.Avg_LMP  # Cost from buying power
+
+# Create a bar chart for revenue and cost per zone
+bar(1:length(group_data_sold.Zone), [group_data_sold.Surplus_Sold group_data_sold.Power_Bought],
+    label=["Revenue" "Cost"],
+    title="Net Market Participation: Revenue vs Cost by Zone",
+    xlabel="Zone", ylabel="Amount ",
+    xticks=(1:length(group_data_sold.Zone), group_data_sold.Zone),  # Zone labels on x-axis
+    color=["#D81B60" "#1E88E5"], bar_width=0.8)
+
+# Save figure
+savefig(joinpath(save_dir, "Net_Market_Participation_Revenue_vs_Cost_by_Zone.png"))
