@@ -1,3 +1,4 @@
+
 # Author: Gabriela Ackermann Logan, Cornell University
 # Last modified: September 2024
 
@@ -294,6 +295,7 @@ unique!(FuelMix)
 
 # Convert the timestamp to a "Year-Month" string for grouping
 FuelMix[!, :YearMonth] = Dates.format.(FuelMix.TimeStamp, "yyyy-mm")
+FuelMix = filter(row ->row.YearMonth !="2020-01",FuelMix)
 FuelMix[!, :YearMonthDate] = Dates.Date.(FuelMix.YearMonth, "yyyy-mm") # Convert 'YearMonth' string back into a DateTime
 FuelMix[!, :YearMonthDate] = Dates.Date.(FuelMix.YearMonth, "yyyy-mm")
 month_abbreviations_fuel = Dates.format.(FuelMix.YearMonthDate, "UUU")  # Extract month abbreviations
@@ -343,6 +345,16 @@ for group in grouped_fuel_data
 end
 =#
 
+##################################################### CO2 Emissions Calculations by Technology #####################################################
+
+
+
+##################################################### LMP Comparison #####################################################
+
+
+
+
+
 ##################################################### Plotting for when power sold vs bought #####################################################
 # Calculate total cost and revenue 
 all_data.power_sold = all_data.WindpowerSold .* all_data.LMP
@@ -365,7 +377,7 @@ bar(1:length(group_data_sold.Zone), [group_data_sold.Mean_Sold group_data_sold.M
 # Save figure
 savefig(joinpath(save_dir, "Net_Market_Participation_Revenue_vs_Cost_by_Zone.png"))
 
-
+#=
 #------------------------------------------------------- Plotting by zone - net revenue vs cost -------------------------------------------------------#
 # Group by Zone 
 group_data_sold = combine(groupby(all_data, :Zone),
@@ -385,3 +397,26 @@ bar(1:length(group_data_sold.Zone), [group_data_sold.Surplus_Sold group_data_sol
 
 # Save figure
 savefig(joinpath(save_dir, "Net_Market_Participation_Revenue_vs_Cost_by_Zone.png"))
+
+
+# #For each zone and plot when there is exess wind power that can be sold to the grid
+all_data.Surplus_Sold = all_data.WindpowerSold .* all_data.LMP  # Revenue from selling power
+all_data.Power_Bought = all_data.MWFromGrid .* all_data.LMP  # Cost from buying power
+total_revenue = sum(all_data.Surplus_Sold)
+total_cost = sum(all_data.Power_Bought)
+
+# println("Total Revenue from selling power: $total_revenue")
+# println("Total Cost from buying power: $total_cost")
+profit = total_revenue - total_cost
+
+# Create a bar chart for revenue and cost
+bar(["Cost", "Revenue"], [total_cost, total_revenue],
+    label=["Cost", "Revenue"],
+    legend = false,
+    title="Net Market Participation: Revenue vs Cost",
+    xlabel="Market Activity", ylabel="Amount Of Money",
+    color=[:gray, :green], bar_width=0.8)
+# Save figure
+savefig(joinpath(save_dir, "Net_Market_Participation_Revenue_vs_Cost.png"))
+=#
+
