@@ -352,10 +352,10 @@ end
 
 ##################################################### LMP Comparison #####################################################
 # Get the csv files for Hydrogen Results
-resultspath_base= "/Users/ga345/Desktop/NYgrid-main/Result/2019/OPF"
 all_baseline_results = glob("BaslineResults_date*.csv", resultspath_base) # Use Glob to find only Baseline Results 
+all_result_scenario2 = glob("HydrogenResults_Scenario2_*.csv", resultspath)
 
-# all_data will store all the results (combine all CSV files)
+# all__baseline_data will store all the results (combine all CSV files)
 all_baseline_data = DataFrame()
 
 # Iterate through all files and ensure types are consistent
@@ -369,6 +369,14 @@ group_data_baseline = combine(groupby(all_baseline_data, [:Zone]),
                                     :LMP => mean => :Average_LMP)
 group_data_baseline= group_data_baseline[1:11,:]
 
+all_scenario2_data = DataFrame()
+# Iterate through all files and ensure types are consistent
+for file in all_result_scenario2
+    file_data = CSV.read(file, DataFrame)
+    # Append the data
+    append!(all_scenario2_data, file_data, promote=true)
+end
+
 # Create the bar chart for all zones
 bar(1:length(group_data_baseline.Zone), group_data_baseline.Average_LMP,
     label="LMP(USD)",
@@ -381,9 +389,13 @@ savefig(joinpath(save_dir, "All_Zones_Baseline_LMP.png"))
 
 group_data_scenario1 = combine(groupby(all_data, [:Zone]), 
                                         :LMP => mean => :Average_LMP)
+ 
+ group_data_scenario2 = combine(groupby(all_scenario2_data, [:Zone]), 
+                                        :LMP => mean => :Average_LMP)
 # Create a line chart to compare LMPs
-plot(group_data_baseline.Zone, group_data_baseline.Average_LMP, label = "Baseline", linewidth =2, color = "purple")
+plot(group_data_baseline.Zone, group_data_baseline.Average_LMP, label = "Baseline", linewidth =2, color = "blue")
 plot!(group_data_scenario1.Zone, group_data_scenario1.Average_LMP, label = "Scenario 1",linewidth =2, color = "green")
+plot!(group_data_scenario2.Zone, group_data_scenario2.Average_LMP, label = "Scenario 2",linewidth =2, color = "purple")
 
 xlabel!("Zone")
 ylabel!("Average LMP (USD)")
@@ -410,7 +422,6 @@ bar(1:length(group_data_sold.Zone), [group_data_sold.Mean_Sold group_data_sold.M
     color=["#D81B60" "#1E88E5"], bar_width=0.8)
 # Save figure
 savefig(joinpath(save_dir, "Net_Market_Participation_Revenue_vs_Cost_by_Zone.png"))
-
 #=
 #------------------------------------------------------- Plotting by zone - net revenue vs cost -------------------------------------------------------#
 # Group by Zone 
