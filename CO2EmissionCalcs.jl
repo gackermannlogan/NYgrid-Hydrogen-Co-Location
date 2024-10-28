@@ -8,23 +8,58 @@ include("GroupData.jl")
 save_dir = "/Users/ga345/Desktop/Hydrogen Results/Demand_$(demand)"
 mkpath(save_dir) # Create the directory if it doesn't exist
 
-##################################################### CO2 Emissions Calculations by Technology #####################################################
-# Define the parameters
-generation_dual_fuel = 2700  # MW
-generation_natural_gas = 1900  # MW
-generation_other_fossil = 5  # MW
-operating_hours = 10  # Example for 10 hours of operation
+##################################################### CO₂ Emissions Calculations by Technology #####################################################
+
+# Extract generation data for each fuel category from pivot_data
+dual_fuel_gen = pivot_data[!, "Dual Fuel"]          # MW from Dual Fuel
+natural_gas_gen = pivot_data[!, "Natural Gas"]       # MW from Natural Gas
+other_fossil_gen = pivot_data[!, "Other Fossil Fuels"]  # MW from Other Fossil Fuels
+
+# Define the number of operating hours (e.g., assume 10 hours of operation or calculate from data if available)
+operating_hours = 10  # Example: can be dynamic if available
 
 # Heat rates (MMBtu/MWh)
 heat_rate_dual_fuel = 12.9
 heat_rate_natural_gas = 9.7
 heat_rate_other_fossil = 12.5
 
-# Carbon content (tons CO2/MMBtu)
+# Carbon content (tons CO₂/MMBtu)
 carbon_content_dual_fuel = 0.061
 carbon_content_natural_gas = 0.059
 carbon_content_other_fossil = 0.119
 
+# Initialize arrays to store emissions for each month
+emissions_dual_fuel = []
+emissions_natural_gas = []
+emissions_other_fossil = []
+
+# Loop through each month to calculate emissions based on actual generation data
+for i in 1:length(dual_fuel_gen)
+    # Calculate CO₂ emissions for each technology
+    emission_df = dual_fuel_gen[i] * operating_hours * heat_rate_dual_fuel * carbon_content_dual_fuel
+    emission_ng = natural_gas_gen[i] * operating_hours * heat_rate_natural_gas * carbon_content_natural_gas
+    emission_of = other_fossil_gen[i] * operating_hours * heat_rate_other_fossil * carbon_content_other_fossil
+
+    # Append the results to each array
+    push!(emissions_dual_fuel, emission_df)
+    push!(emissions_natural_gas, emission_ng)
+    push!(emissions_other_fossil, emission_of)
+end
+
+# Create a DataFrame to store the emissions results by month
+emissions_data = DataFrame(
+    Month = pivot_data[!, :YearMonth],
+    Dual_Fuel_CO2_Emissions = emissions_dual_fuel,
+    Natural_Gas_CO2_Emissions = emissions_natural_gas,
+    Other_Fossil_CO2_Emissions = emissions_other_fossil
+)
+
+# Display the CO₂ emissions data
+println("CO₂ Emissions by Technology and Month (tons):")
+display(emissions_data)
+
+# Optional: save the emissions data to a CSV file
+CSV.write(joinpath(save_dir, "CO2_Emissions_By_Technology_Monthly.csv"), emissions_data)
 
 
 ##################################################### LMP Comparison #####################################################
