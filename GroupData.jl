@@ -6,17 +6,8 @@ include("OpenDataHydrogen.jl")
 
 # Get the csv files for Hydrogen Results
 resultspath = "/Users/ga345/Desktop/NYgrid-main/Result/2019/OPF"
-all_data = OpenData(resultspath)
-all_data[!, :Timestamp] = fix_timestamp.(String.(all_data.Timestamp))
-all_data[!, :Timestamp] = replace_month.(all_data.Timestamp)  # Replace month abbreviations
-
-# Convert the Timestamp column to datetime for easier grouping by months
-try
-    all_data[!, :Timestamp] = Dates.DateTime.(all_data.Timestamp, "dd-mm-yyyy HH:MM:SS")
-    println("Successfully converted all timestamps to DateTime.")
-catch e
-    println("Error converting timestamps: ", e)
-end
+#all_data = OpenData(resultspath)
+all_data = OpenData_Scenario2(resultspath)
 
 # Calculate demand 
 demand = round(sum(all_data.MWFromGrid[1] + all_data.MWFromWind[1]), digits = 2)
