@@ -23,20 +23,68 @@ function OpenData(resultspath)
         append!(all_data, data, promote=true)
     end
 
+    all_data[!, :Timestamp] = fix_timestamp.(String.(all_data.Timestamp))
+    all_data[!, :Timestamp] = replace_month.(all_data.Timestamp)  # Replace month abbreviations
+
+    # Convert the Timestamp column to datetime for easier grouping by months
+    try
+        all_data[!, :Timestamp] = Dates.DateTime.(all_data.Timestamp, "dd-mm-yyyy HH:MM:SS")
+        println("Successfully converted all timestamps to DateTime.")
+    catch e
+        println("Error converting timestamps: ", e)
+    end
+
+    return all_data
+end
+
+# Define Functions
+function OpenData_Scenario2(resultspath)
+    all_result_files = glob("HydrogenResults_Scenario2_date*.csv", resultspath) # Use Glob to find only Hydrogen Results 
+
+    # all_data will store all the results (combine all CSV files)
+    all_data = DataFrame()
+    # Iterate through all files and ensure types are consistent
+    for file in all_result_files
+        data = CSV.read(file, DataFrame)
+        
+        # Ensure that 'MWFromGrid' column is Float64 in each file
+        if "MWFromGrid" in names(data)
+            data[!, :MWFromGrid] = convert(Vector{Float64}, data[!, :MWFromGrid])
+        end
+        
+        # Append the data
+        append!(all_data, data, promote=true)
+    end
+
+    all_data[!, :Timestamp] = fix_timestamp.(String.(all_data.Timestamp))
+    all_data[!, :Timestamp] = replace_month.(all_data.Timestamp)  # Replace month abbreviations
+
+    # Convert the Timestamp column to datetime for easier grouping by months
+    try
+        all_data[!, :Timestamp] = Dates.DateTime.(all_data.Timestamp, "dd-mm-yyyy HH:MM:SS")
+        println("Successfully converted all timestamps to DateTime.")
+    catch e
+        println("Error converting timestamps: ", e)
+    end
+    
     return all_data
 end
 
 function OpenFuelData(resultspath)
-    Fuel_mix_files = glob("HydrogenFuelMix_*.csv", resultspath)  # Use Glob to find only Hydrogen Results
+    Fuel_mix_files = glob("BaslineFuelMix_*.csv", resultspath)  # Use Glob to find only Hydrogen Results
     # Create one DataFrame to store all the results for Fuel
     all_Fuel_data = DataFrame()
     for file in Fuel_mix_files
         data = CSV.read(file, DataFrame)
         append!(all_Fuel_data, data)
     end
+
     # Convert 'TimeStamp' in all_Fuel_data from string to DateTime
     all_Fuel_data.TimeStamp = String.(all_Fuel_data.TimeStamp)
     all_Fuel_data[!, :TimeStamp] = Dates.DateTime.(all_Fuel_data.TimeStamp, "mm/dd/yyyy HH:MM:SS")
+
+    all_Fuel_data1 = sort(all_Fuel_data, :TimeStamp)
+    all_Fuel_data= filter(row ->row.TimeStamp !="2020-01",all_Fuel_data1)
 
     # Create an empty DataFrame to store the filtered results
     FuelMix = DataFrame()
@@ -55,17 +103,9 @@ function OpenFuelData(resultspath)
             end
         end
     end
-
     # Remove duplicates from the final FuelMix
     unique!(FuelMix)
-
-    # Convert the timestamp to a "Year-Month" string for grouping
-    FuelMix[!, :YearMonth] = Dates.format.(FuelMix.TimeStamp, "yyyy-mm")
-    FuelMix = filter(row ->row.YearMonth !="2020-01",FuelMix)
-    FuelMix[!, :YearMonthDate] = Dates.Date.(FuelMix.YearMonth, "yyyy-mm") # Convert 'YearMonth' string back into a DateTime
-    FuelMix[!, :YearMonthDate] = Dates.Date.(FuelMix.YearMonth, "yyyy-mm")
-    month_abbreviations_fuel = Dates.format.(FuelMix.YearMonthDate, "UUU")  # Extract month abbreviations
-    unique!(month_abbreviations_fuel)
+    return FuelMix
 end
 
 # Function to fix timestamps and add missing 24:00:00 hour label
@@ -94,6 +134,8 @@ function replace_month(ts::String)
     end
     return ts  # Return the timestamp if no replacement is needed
 end
+
+
 
 
 
