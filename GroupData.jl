@@ -1,3 +1,6 @@
+# Author: Gabriela Ackermann Logan, Cornell University
+# Last modified: Novemeber 2024
+
 function GroupData(all_data)
     # Group by zone and the total generation from the wind farm 
     grouped_data_windgen = combine(groupby(all_data, :Zone),
@@ -11,8 +14,8 @@ function GroupData(all_data)
 
 
     # Convert the timestamp to a "Year-Month" string for grouping
-    all_data[!, :YearMonth] = Dates.format.(all_data.Timestamp, "yyyy-mm")
-    all_data[!, :YearMonthDate] = Dates.Date.(all_data.YearMonth, "yyyy-mm") # Convert 'YearMonth' string back into a DateTime
+    all_data[!, :YearMonth] = Dates.format.(all_data.Timestamp, "yyyy-mm-dd")
+    all_data[!, :YearMonthDate] = Dates.Date.(all_data.YearMonth, "yyyy-mm-dd") # Convert 'YearMonth' string back into a DateTime
 
     # Group by zone and YearMonth and mean the relevant columns
     grouped_data_monthly = combine(groupby(all_data, [:Zone, :YearMonth]),
