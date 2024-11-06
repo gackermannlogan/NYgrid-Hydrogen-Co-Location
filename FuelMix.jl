@@ -5,11 +5,15 @@
 include("OpenDataHydrogen.jl")
 
 # Define Scenario 
-Scenario = 0
+Scenario = 1
 
 # Define the directory where the plots will be saved
 save_dir = "/Users/ga345/Desktop/Hydrogen Results/Scenario$(Scenario)"
 mkpath(save_dir) # Create the directory if it doesn't exist
+
+# Define a seperate directory for hourly figures (for each month)
+save_dir2 = "/Users/ga345/Desktop/Hydrogen Results/Scenario$(Scenario)/Hourly"
+mkpath(save_dir2) # Create the directory if it doesn't exist
 
 ################################################################### Simulated Fuel Mix ##########################################################################################
 function fuelmixploting(scenario)
@@ -104,20 +108,24 @@ function fuelmixploting(scenario)
     end
 
     # Add a YearMonth column for monthly grouping
-    all_fuel_data.YearMonth = Dates.format.(all_fuel_data.Timestamp, "yyyy-mm")
+    all_fuel_data.YearMonth = Dates.format.(all_fuel_data.Timestamp, "yyyy-mm-dd")
+    all_fuel_data[!, :YearMonth] = Dates.Date.(all_fuel_data.YearMonth, "yyyy-mm-dd")
+    all_fuel_data[!, :YearMonthDate] = Dates.format.( all_fuel_data.YearMonth, "yyyy-mm")
 
     # Group and aggregate data by YearMonth and FuelType
-    grouped_data = combine(groupby(all_fuel_data, [:YearMonth, :FuelType]), :Power => sum => :TotalPower)
+    grouped_data = combine(groupby(all_fuel_data, [:YearMonthDate, :FuelType]), :Power => sum => :TotalPower)
 
     # Unstack data for plotting
     plot_data = unstack(grouped_data, :FuelType, :TotalPower)
 
     # Return the full data for inspection or further use
-    return all_fuel_data, plot_data
+    return all_fuel_data, plot_data, grouped_data
 end
 
 # Call the function and retrieve both the data and the plot data
-all_fuel_data, plot_data = fuelmixploting(1)
+all_fuel_data, plot_data, grouped_fuel = fuelmixploting(1)
+month_abbreviations_fuel = Dates.format.(all_fuel_data.YearMonth, "UUU")  # Extract month abbreviations
+unique!(month_abbreviations_fuel)
 
 thermal_fuel = plot_data[!, "Thermal"]
 nuclear = plot_data[!, "Nuclear"]
@@ -130,108 +138,65 @@ groupedbar([thermal_fuel nuclear hydro wind_pivot solar_pivot],
     label= ["Dual Fuel" "Hydro" "Natural Gas" "Nuclear" "Other Fossil Fuels" "Other Renewables" "Wind"],
     bar_position = :stack,
     xlabel="Months", ylabel="Generation (MWh)",  
-    xticks=(1:length(grouped_fuel.YearMonth), month_abbreviations_fuel),  # Use month abbreviations for x-axis labels
+    xticks=(1:length(grouped_fuel.YearMonthDate), month_abbreviations_fuel),  # Use month abbreviations for x-axis labels
     title= "Fuel Mix Over Year",
     legend=:topright,
     rotation=45,
     color=["#648FFF" "#785EF0" "#DC267F" "#004D40" "#FE6100" ], bar_width=0.8)
 
-# Extract x and y data from plot_data DataFrame
-##x = plot_data.YearMonth
-y_data = plot_data[:, Not(:YearMonth)]  # Extract all columns except YearMonth for the stacked data
-
-# Convert y_data to a matrix for easy stacking
-#y_matrix = Matrix(y_data)
-
-# Plot stacked bar chart
-#bar(x, y_matrix, label=names(plot_data)[2:end],
-   # xlabel="Months", ylabel="Generation (MWh)",
-   # legend=:topright, title="Fuel Mix Over Year", bar_width=0.8)
-
 # Save the plot
 savefig(joinpath(save_dir, "Simulated_FuelMix_by_Zone_Scenario$(Scenario).png"))
+#=
+#------------- Plot hourly for day 7 - 12 in Janurary -------------# 
+# Want to see how this changes hourly
+m = 1
+# Define the start and end date for the month 
+start_date2 = Date(2019, m, 1)
+end_date2 = start_date + Month(1) - Day(1)
+        
+# Filter for Zone D and the specific month 
+Fuel_Janurary = filter(row -> row.Timestamp>= start_date2 && row.Timestamp <= end_date2, all_fuel_data)
 
+# Filter for just days 10 -12
+start_day = 7 
+end_day = 12
+jan_days = filter(row -> day(row.Timestamp) >= start_day &&  day(row.Timestamp)<= end_day, Fuel_Janurary)
+unique_days = unique(jan_days.YearMonth)
 
-function PlotFuelData(scenario)
-    if scenario == 0
-        # Define the directory and pattern for .mat files
-        results_path = "/Users/ga345/Desktop/NYgrid-main/Result_Baseline/2019/OPF/"
-    else 
-        # Define the directory and pattern for .mat files
-        results_path = "/Users/ga345/Desktop/NYgrid-main/Result_Scenario$(Scenario)/2019/OPF/"
-    end
-    npcc =CSV.read("/Users/ga345/Desktop/NYgrid-main/Data/npcc.csv", DataFrame) 
-    npcc = filter(row -> row[:zone] !="NA", npcc)
-    bus_zonal = DataFrame(bus_id = npcc.idx, zone = npcc.zone)
-    bus_to_zone = Dict(row.bus_id => row.zone for row in eachrow(bus_zonal))
+for day in unique_days
+    # Filter data for the current day
+    day_data = filter(row -> row.YearMonth == day, jan_days)
+    
+    # Filter by fuel type
+    thermal_fuel = filter(row -> row.FuelType == "Thermal", day_data)
+    nuclear_fuel = filter(row -> row.FuelType == "Nuclear", day_data)
+    hydro_fuel = filter(row -> row.FuelType == "Hydro", day_data)
+    wind_fuel = filter(row -> row.FuelType == "Wind", day_data)
+    solar_fuel = filter(row -> row.FuelType == "Solar", day_data)
+    # Add other fuel types as needed
 
-    FuelMix = DataFrame(timestamp = DateTime[], zone = String[], fuel = String[], Total_Power = Float64[])  # Initialize an empty DataFrame to store all data with timestamps
-    mat_files = filter(f-> endswith(f, ".mat"), readdir(results_path; join=true))
+    # Prepare data for grouped bar plot
+    fuels = ["Thermal", "Nuclear", "Hydro", "Wind", "Solar"]  # Add other labels as needed
+    power_data = [sum(thermal_fuel.Power), sum(nuclear_fuel.Power), sum(hydro_fuel.Power), 
+                  sum(wind_fuel.Power), sum(solar_fuel.Power)]
+    
+    # Generate the grouped bar plot with stacking
+    groupedbar(fuels, power_data, bar_position=:stack,
+               xlabel="Fuel Type", ylabel="Generation (MW)",
+               title="Fuel Mix for $(day) Hourly",
+               label=["Thermal" "Nuclear" "Hydro" "Wind" "Solar"],  # Adjust to match each fuel type
+               legend=:topright, rotation=45,
+               color=["#648FFF" "#785EF0" "#DC267F" "#004D40" "#FE6100"],  # Match colors as in your screenshot
+               bar_width=0.8)
 
-    for file_path in mat_files
-        if occursin(r"resultOPF.*\.mat", file_path)  # Only process .mat files that match the pattern
-            # Extract the timestamp from the filename 
-            filename = basename(file_path)
-            timestamp_str = match(r"\d{8}_\d{2}", filename).match  # Extract 'yyyymmdd_hh'
-            timestamp = DateTime(timestamp_str, "yyyymmdd_HH")
-
-            # Open the .mat file and read data
-            file = matopen(file_path)
-            data = read(file, "resultOPF")
-            close(file)
-
-            #Extract the relevant data and map zones
-            gen_data = data["gen"]
-            fueltype = data["genfuel"]
-
-            df = DataFrame(bus_id = gen_data[:,1], power = gen_data[:2], fuel = fueltype[:])
-            df = sort(df, :bus_id)
-
-            #Filter and map zones based on bus_id
-            matching = filter(row ->row.bus_id in bus_zonal.bus_id, df)
-            matching.zone = [bus_to_zone[row.bus_id] for row in eachrow(matching)]
-            
-            # Group and aggregate by zone and fuel type
-            grouped_matching = combine(groupby(matching,[:zone, :fuel]), :power => sum => :Total_Power)
-            grouped_matching.timestamp .=timestamp
-            append!(FuelMix, grouped_matching)
-        end
-    end
-
-    # Convert the timestamp to a "Year-Month" string for grouping
-    FuelMix[!, :YearMonth] = Dates.format.(FuelMix.timestamp, "yyyy-mm")
-    FuelMix = filter(row ->row.YearMonth !="2020-01",FuelMix)
-    FuelMix[!, :YearMonthDate] = Dates.Date.(FuelMix.YearMonth, "yyyy-mm") # Convert 'YearMonth' string back into a DateTime
-    FuelMix[!, :YearMonthDate] = Dates.Date.(FuelMix.YearMonth, "yyyy-mm")
-    FuelMix = sort(FuelMix, :YearMonth)
-    month_abbreviations_fuel = Dates.format.(FuelMix.YearMonthDate, "UUU")  # Extract month abbreviations
-    unique!(month_abbreviations_fuel)
-
-    # Group the merged data by Zone and FuelCategory + sum the generation
-    grouped_fuel = combine(groupby(FuelMix, [:YearMonth, :fuel]), :Total_Power => mean => :Total_GenMW) 
-
-    # Pivot the data to make fuel categories the columns and zones the rows
-    pivot_data = unstack(grouped_fuel, :fuel, :Total_GenMW)
-
-    return pivot_data, grouped_fuel, month_abbreviations_fuel
+    # Save the plot
+    savefig(joinpath(save_dir2, "Simulated_FuelMix_Jan_$(day).png"))
 end
-
-#pivot_data, grouped_fuel, month_abbreviations_fuel= PlotFuelData(Scenario)
-
-#fueltypes = names(pivot_data)[2:end]
-#fuel_data = [pivot_data[!,col] for col in fueltypes]
-#=
-bar(fuel_data,
-    label=:false,
-    bar_position = :stack,
-    xlabel="Months", ylabel="Generation (MWh)",  
-    xticks=(1:length(grouped_fuel.YearMonth), month_abbreviations_fuel),  # Use month abbreviations for x-axis labels
-    title= "Fuel Mix Over Year",
-    legend=:topright,
-    rotation=45,
-    color=["#648FFF" "#785EF0" "#DC267F" "#004D40" "#FE6100" "#FFB000" "#994F00" "#648FFF"], bar_width=0.8) 
 =#
-#=
+
+
+
+
 ################################################################### Real Fuel Mix ##########################################################################################
 function fuelmix(scenario)
     if scenario == 0
@@ -269,7 +234,7 @@ function fuelmix(scenario)
     wind_pivot = pivot_data[!,"Wind"]
     return pivot_data, dual_fuel, hydro, natural_gas, nuclear, other_fossil, other_renewables, wind_pivot
 end
-
+#=
 pivot_data, dual_fuel, hydro, natural_gas, nuclear, other_fossil, other_renewables, wind_pivot = fuelmix(Scenario)
 
 groupedbar([dual_fuel hydro natural_gas nuclear other_fossil other_renewables wind_pivot],
@@ -284,9 +249,9 @@ groupedbar([dual_fuel hydro natural_gas nuclear other_fossil other_renewables wi
 
 # Save the stacked bar chart
 savefig(joinpath(save_dir, "Real_FuelMix_by_Zone_Scenario$(Scenario).png"))
-=#
+
 #-------------------------------------------------------  Pie Chart for Fuel Mix per Zone-------------------------------------------------------#
-#=
+
 # Loop through each group of rows with the same timestamp to create pie charts with percentages
 for group in grouped_fuel_data
     current_timestamp = group.TimeStamp[1]
