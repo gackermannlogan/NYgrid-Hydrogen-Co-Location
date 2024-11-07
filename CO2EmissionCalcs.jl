@@ -19,6 +19,7 @@ function SimulatedCO2EmissionCalc(scenario)
     else
         "/Users/ga345/Desktop/NYgrid-main/Result_Scenario$(scenario)/2019/OPF/"
     end
+    
     # Filter for .mat files in the specified directory
     mat_files = filter(f -> occursin(r"resultOPF.*\.mat", f), readdir(results_path; join=true))
 
@@ -56,15 +57,141 @@ function SimulatedCO2EmissionCalc(scenario)
     # Pivot the DataFrame to have FuelTypes as columns
     pivot_data = unstack(grouped_data, :FuelType, :TotalPower)
 
-    # Fill missing values with zeros
+    # Fill missing values with zeros for consistent calculations
     replace!(pivot_data, missing => 0.0)
 
-    # Now, calculate CO₂ emissions using heat rates and carbon contents
-    # Heat rates (MMBtu/MWh)
-    Fueltypes = ["Combined Cycle", "Combustion Turbine", "Internal Combustion", "Jet Engine", "Steam Turbine"]
+    # Define heat rates (in MMBtu/MWh) and carbon contents (in tons CO₂/MMBtu) for each new fuel type
+    heat_rates = Dict(
+        "Combined Cycle" => 7.0,
+        "Combustion Turbine" => 9.0,
+        "Internal Combustion" => 8.0,
+        "Jet Engine" => 9.0,
+        "Steam Turbine" => 10.0
+    )
 
+    carbon_contents = Dict(
+        "Combined Cycle" => 0.0549,
+        "Combustion Turbine" => 0.0549,
+        "Internal Combustion" => 0.07396,
+        "Jet Engine" => 0.07222,
+        "Steam Turbine" => 0.07510
+    )
+
+    # Initialize arrays to store emissions
+    emissions_combined_cycle = Float64[]
+    emissions_combustion_turbine = Float64[]
+    emissions_internal_combustion = Float64[]
+    emissions_jet_engine = Float64[]
+    emissions_steam_turbine = Float64[]
+
+    for i in 1:nrow(pivot_data)
+        # Retrieve generation for each fuel type at this timestamp, using 0.0 if not present
+        combined_cycle_gen = get(pivot_data[i, "Combined Cycle"], 0.0)
+        combustion_turbine_gen = get(pivot_data[i, "Combustion Turbine"], 0.0)
+        internal_combustion_gen = get(pivot_data[i, "Internal Combustion"], 0.0)
+        jet_engine_gen = get(pivot_data[i, "Jet Engine"], 0.0)
+        steam_turbine_gen = get(pivot_data[i, "Steam Turbine"], 0.0)
+
+        # Calculate emissions for each type
+        emission_cc = combined_cycle_gen * heat_rates["Combined Cycle"] * carbon_contents["Combined Cycle"]
+        emission_ct = combustion_turbine_gen * heat_rates["Combustion Turbine"] * carbon_contents["Combustion Turbine"]
+        emission_ic = internal_combustion_gen * heat_rates["Internal Combustion"] * carbon_contents["Internal Combustion"]
+        emission_je = jet_engine_gen * heat_rates["Jet Engine"] * carbon_contents["Jet Engine"]
+        emission_st = steam_turbine_gen * heat_rates["Steam Turbine"] * carbon_contents["Steam Turbine"]
+
+        # Append results to each array
+        push!(emissions_combined_cycle, emission_cc)
+        push!(emissions_combustion_turbine, emission_ct)
+        push!(emissions_internal_combustion, emission_ic)
+        push!(emissions_jet_engine, emission_je)
+        push!(emissions_steam_turbine, emission_st)
+    end
+
+    # Add emissions to pivot_data DataFrame
+    pivot_data[!, "Combined_Cycle_CO2_Emissions"] = emissions_combined_cycle
+    pivot_data[!, "Combustion_Turbine_CO2_Emissions"] = emissions_combustion_turbine
+    pivot_data[!, "Internal_Combustion_CO2_Emissions"] = emissions_internal_combustion
+    pivot_data[!, "Jet_Engine_CO2_Emissions"] = emissions_jet_engine
+    pivot_data[!, "Steam_Turbine_CO2_Emissions"] = emissions_steam_turbine
+
+    return pivot_data
 end
 
+
+if Scenario == 0
+    # Calculate emissions for the baseline scenario using SimulatedCO2EmissionCalc
+    simulated_emissions = SimulatedCO2EmissionCalc(Scenario)
+
+    # Extract CO₂ emissions for each fuel type from the baseline scenario
+    combined_cycle = simulated_emissions[!, "Combined_Cycle_CO2_Emissions"]
+    combustion_turbine = simulated_emissions[!, "Combustion_Turbine_CO2_Emissions"]
+    internal_combustion = simulated_emissions[!, "Internal_Combustion_CO2_Emissions"]
+    jet_engine = simulated_emissions[!, "Jet_Engine_CO2_Emissions"]
+    steam_turbine = simulated_emissions[!, "Steam_Turbine_CO2_Emissions"]
+
+    # Plot the baseline emissions
+    months = simulated_emissions.Timestamp
+    baseline_data = [combined_cycle combustion_turbine internal_combustion jet_engine steam_turbine]
+
+    groupedbar(
+        months, baseline_data,
+        label=["Combined Cycle" "Combustion Turbine" "Internal Combustion" "Jet Engine" "Steam Turbine"],
+        bar_position=:stack,
+        xlabel="Months",
+        ylabel="CO₂ Emissions (tons)",
+        xticks=(1:length(months), [monthname(month) for month in months]),
+        title="CO₂ Emissions by Technology and Month (Baseline Scenario)",
+        legend=:topright,
+        rotation=45
+    )
+
+    # Save the plot
+    savefig(joinpath(save_dir, "CO2Emissions_Baseline.png"))
+
+else
+    # Calculate emissions for both baseline and specified scenario
+    simulated_emissions_baseline = SimulatedCO2EmissionCalc(0)
+    simulated_emissions_scenario = SimulatedCO2EmissionCalc(Scenario)
+
+    # Extract CO₂ emissions for each fuel type from both baseline and scenario
+    combined_cycle_base = simulated_emissions_baseline[!, "Combined_Cycle_CO2_Emissions"]
+    combustion_turbine_base = simulated_emissions_baseline[!, "Combustion_Turbine_CO2_Emissions"]
+    internal_combustion_base = simulated_emissions_baseline[!, "Internal_Combustion_CO2_Emissions"]
+    jet_engine_base = simulated_emissions_baseline[!, "Jet_Engine_CO2_Emissions"]
+    steam_turbine_base = simulated_emissions_baseline[!, "Steam_Turbine_CO2_Emissions"]
+
+    combined_cycle_scenario = simulated_emissions_scenario[!, "Combined_Cycle_CO2_Emissions"]
+    combustion_turbine_scenario = simulated_emissions_scenario[!, "Combustion_Turbine_CO2_Emissions"]
+    internal_combustion_scenario = simulated_emissions_scenario[!, "Internal_Combustion_CO2_Emissions"]
+    jet_engine_scenario = simulated_emissions_scenario[!, "Jet_Engine_CO2_Emissions"]
+    steam_turbine_scenario = simulated_emissions_scenario[!, "Steam_Turbine_CO2_Emissions"]
+
+    # Calculate the difference in emissions between the baseline and scenario
+    combined_cycle_diff = combined_cycle_scenario .- combined_cycle_base
+    combustion_turbine_diff = combustion_turbine_scenario .- combustion_turbine_base
+    internal_combustion_diff = internal_combustion_scenario .- internal_combustion_base
+    jet_engine_diff = jet_engine_scenario .- jet_engine_base
+    steam_turbine_diff = steam_turbine_scenario .- steam_turbine_base
+
+    # Prepare data for plotting the difference
+    months = simulated_emissions_scenario.Timestamp
+    diff_data = [combined_cycle_diff combustion_turbine_diff internal_combustion_diff jet_engine_diff steam_turbine_diff]
+
+    groupedbar(
+        months, diff_data,
+        label=["Combined Cycle" "Combustion Turbine" "Internal Combustion" "Jet Engine" "Steam Turbine"],
+        bar_position=:stack,
+        xlabel="Months",
+        ylabel="CO₂ Emissions Difference (tons)",
+        xticks=(1:length(months), [monthname(month) for month in months]),
+        title="Difference in CO₂ Emissions by Technology and Month (Scenario $(Scenario))",
+        legend=:topright,
+        rotation=45
+    )
+
+    # Save the plot
+    savefig(joinpath(save_dir, "CO2Emissions_Difference_Scenario$(Scenario).png"))
+end
 
 
 function RealCO2EmissionCalc(scenario)
@@ -153,6 +280,7 @@ else
     savefig(joinpath(save_dir, "Co2Emissions_Scenario$(Scenario).png"))
 end
 =#
+
 
 
 
