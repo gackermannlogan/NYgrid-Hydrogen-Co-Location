@@ -16,7 +16,7 @@ save_dir2 = "/Users/ga345/Desktop/Hydrogen Results/Scenario$(Scenario)/Hourly"
 mkpath(save_dir2) # Create the directory if it doesn't exist
 
 ################################################################### Simulated Fuel Mix ##########################################################################################
-function fuelmixploting(scenario)
+function fuelmixplotting(scenario)
     # Define the result path based on the scenario
     results_path = if scenario == 0
         "/Users/ga345/Desktop/NYgrid-main/Result_Baseline/2019/OPF/"
@@ -79,7 +79,7 @@ function fuelmixploting(scenario)
                 elseif fuel == "Hydro"
                     push!(hydro_power, power)
                 elseif fuel == "Import"
-                    push!(import_power, power - demandExt)
+                    push!(import_power, power)
                 elseif addrenew && fuel == "Solar"
                     push!(solar_power, power)
                 elseif addrenew && fuel == "Wind"
@@ -91,7 +91,7 @@ function fuelmixploting(scenario)
             total_thermal_power = sum(thermal_power)
             total_nuclear_power = sum(nuclear_power)
             total_hydro_power = sum(hydro_power)
-            total_import_power = sum(import_power) - demandExt
+            total_import_power = sum(import_power) #- demandExt
             total_solar_power = sum(solar_power)
             total_wind_power = sum(wind_power)
 
@@ -125,7 +125,7 @@ end
 
 # If the scenario is the baseline, then plot as normal, else will plot the differences
 if Scenario == 0
-    all_fuel_data, plot_data, grouped_fuel = fuelmixploting(Scenario)
+    all_fuel_data, plot_data, grouped_fuel = fuelmixplotting(Scenario)
     month_abbreviations_fuel = Dates.format.(all_fuel_data.YearMonth, "UUU")  # Extract month abbreviations
     unique!(month_abbreviations_fuel)
 
@@ -149,10 +149,10 @@ if Scenario == 0
     savefig(joinpath(save_dir, "Simulated_FuelMix_by_Zone_Scenario$(Scenario).png"))
 else 
     # Get the baseline fuel mix
-    all_fuel_data_base, plot_data_base, grouped_fuel_base = fuelmixploting(0)
+    all_fuel_data_base, plot_data_base, grouped_fuel_base = fuelmixplotting(0)
 
     # Get the relevant scenario data 
-    all_fuel_data_scenario, plot_data_scenario, grouped_fuel_scenario= fuelmixploting(Scenario)
+    all_fuel_data_scenario, plot_data_scenario, grouped_fuel_scenario= fuelmixplotting(Scenario)
 
     # Calculate the difference in datasets 
     plot_data[:, Not([:YearMonthDate])] .= plot_data_base[:, Not([:YearMonthDate])] .- plot_data_scenario[:, Not([:YearMonthDate])]
@@ -180,7 +180,7 @@ else
 end
 
 #------------------ Plot hourly for day 7 - 12 in Janurary ------------------# 
-all_fuel_data1, plot_data1, grouped_fuel1 = fuelmixploting(Scenario)
+all_fuel_data1, plot_data1, grouped_fuel1 = fuelmixplotting(Scenario)
 # Want to see how this changes hourly
 m = 1
 # Define the start and end date for the month 
@@ -198,11 +198,20 @@ jan_days = filter(row -> day(row.Timestamp) >= start_day &&  day(row.Timestamp)<
 thermal_fuel = filter(row -> row.FuelType == "Thermal", jan_days)
 nuclear_fuel = filter(row -> row.FuelType == "Nuclear", jan_days)
 hydro_fuel = filter(row -> row.FuelType == "Hydro", jan_days)
+import_fuel = filter(row -> row.FuelType == "Import", jan_days)
 wind_fuel = filter(row -> row.FuelType == "Wind", jan_days)
 solar_fuel = filter(row -> row.FuelType == "Solar", jan_days)
 
 hourly_demand =  combine(groupby(jan_days, :Timestamp), 
     :Demand => mean => :Demand)
+
+timestamp = thermal_fuel.Timestamp 
+thermal = thermal_fuel.Power
+nuclear = nuclear_fuel.Power
+hydro = hydro_fuel.Power
+imports = import_fuel.Power
+
+Fuel_Mix_Jan = DataFrame(Timestamp = timestamp , Demand = hourly_demand.Demand, Thermal = thermal, Nuclear = nuclear, Hydro = hydro, Imports = imports)
 
 groupedbar([nuclear_fuel.Power thermal_fuel.Power hydro_fuel.Power wind_fuel.Power solar_fuel.Power],
     label = ["Nuclear" "Thermal" "Hydro" "Wind" "Solar"],
@@ -213,18 +222,21 @@ groupedbar([nuclear_fuel.Power thermal_fuel.Power hydro_fuel.Power wind_fuel.Pow
     legend=:topright, rotation=45,
     color=["#785EF0" "#648FFF" "#DC267F" "#004D40" "#FE6100"], bar_width=0.8
 )
-
 # Save the plot
 savefig(joinpath(save_dir2, "Simulated_FuelMix_Jan.png"))
 
+# Plot hourly demand
 bar(hourly_demand.Demand,
     label = "Demand", 
-    xlabel = "Hour", ylabel = "Deamnd", 
+    xlabel = "Hour", ylabel = "Demand", 
     xticks = 0:24:150,
-    title = "Deamnd Hourly  Secnario $(Scenario)",
+    title = "Demand Hourly",
     legend=:topright, rotation=45,bar_width=0.8
     )
 savefig(joinpath(save_dir2, "Demand_Jan.png"))
+
+
+
 ################################################################### Real Fuel Mix ##########################################################################################
 function fuelmix(scenario)
     if scenario == 0
