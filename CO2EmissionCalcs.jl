@@ -2,10 +2,13 @@
 # Last modified: Novemeber 2024
 
 # Import Fundtions 
-include("FuelMix.jl")
+# include("FuelMix.jl")
+
+# Import relevant packages
+using DataFrames, CSV, Glob, Dates, Plots, Statistics, StatsPlots, MAT
 
 # Define Scenario 
-Scenario = 1
+Scenario = 0
 
 # Define the directory where the plots will be saved
 save_dir = "/Users/ga345/Desktop/Hydrogen Results/Scenario$(Scenario)"
@@ -19,46 +22,50 @@ function SimulatedCO2EmissionCalc(scenario)
     else
         "/Users/ga345/Desktop/NYgrid-main/Result_Scenario$(scenario)/2019/OPF/"
     end
-    
-    # Filter for .mat files in the specified directory
-    mat_files = filter(f -> occursin(r"resultOPF.*\.mat", f), readdir(results_path; join=true))
 
+    # Filter for .mat files in the specified directory
+    mat_files = filter(f -> endswith(f, ".mat"), readdir(results_path; join=true))
+    
     # Initialize an empty DataFrame to store aggregated results
     all_fuel_data = DataFrame(Timestamp = DateTime[], FuelType = String[], Power = Float64[])
 
     for file_path in mat_files
-        # Extract the timestamp from the filename
-        filename = basename(file_path)
-        timestamp_match = match(r"(\d{8}_\d{2})", filename)
-        timestamp = DateTime(timestamp_match.captures[1], "yyyymmdd_HH")
+        if occursin(r"resultOPF.*\.mat", file_path)  # Only process files that match the pattern
+            # Extract the timestamp from the filename
+            filename = basename(file_path)
+            timestamp_str = match(r"\d{8}_\d{2}", filename).match  # Extract 'yyyymmdd_hh'
+            timestamp = DateTime(timestamp_str, "yyyymmdd_HH")
 
-        # Open the .mat file and read data
-        file = matopen(file_path)
-        data = read(file, "resultOPF")
-        close(file)
+            # Open the .mat file and read data
+            file = matopen(file_path)
+            data = read(file, "resultOPF")
+            close(file)
 
-        # Extract generation data and fuel types
-        gen_data = data["gen"]  # Assuming gen_data[2,:] contains power output
-        fuel_types = data["genfuel"]  # Array of fuel types corresponding to generators
+            # Extract the relevant data
+            gen_data = data["gen"]
+            fuel_types = data["genfuel"]
 
-        # Create a DataFrame for the current timestep
-        gen_power = gen_data[2, :]  # Power output for each generator
-        df = DataFrame(Timestamp = fill(timestamp, length(fuel_types)),
-                       FuelType = fuel_types,
-                       Power = gen_power)
-
-        # Append to the aggregated DataFrame
-        append!(all_fuel_data, df)
+            # Create a DataFrame for the current timestep
+            gen_power = gen_data[:,2]  # Power output for each generator
+            df = DataFrame(FuelType = fuel_types[:], Power = gen_data[:2])
+            df.Timestamp .=timestamp
+            # Append to the aggregated DataFrame
+            append!(all_fuel_data, df)
+        end
     end
 
-    # Group data by FuelType and Timestamp, sum the power
-    grouped_data = combine(groupby(all_fuel_data, [:Timestamp, :FuelType]), :Power => sum => :TotalPower)
+    all_fuel_data.YearMonth = Dates.format.(all_fuel_data.Timestamp, "yyyy-mm-dd")
+    all_fuel_data[!, :YearMonth] = Dates.Date.(all_fuel_data.YearMonth, "yyyy-mm-dd")
+    all_fuel_data[!, :YearMonthDate] = Dates.format.( all_fuel_data.YearMonth, "yyyy-mm")
+
+    # Group and aggregate data by YearMonth and FuelType
+    grouped_data = combine(groupby(all_fuel_data, [:YearMonthDate, :FuelType]), :Power => sum => :TotalPower)
 
     # Pivot the DataFrame to have FuelTypes as columns
     pivot_data = unstack(grouped_data, :FuelType, :TotalPower)
-
+    
     # Fill missing values with zeros for consistent calculations
-    replace!(pivot_data, missing => 0.0)
+    #replace!(pivot_data, missing => 0.0)
 
     # Define heat rates (in MMBtu/MWh) and carbon contents (in tons CO₂/MMBtu) for each new fuel type
     heat_rates = Dict(
@@ -86,11 +93,11 @@ function SimulatedCO2EmissionCalc(scenario)
 
     for i in 1:nrow(pivot_data)
         # Retrieve generation for each fuel type at this timestamp, using 0.0 if not present
-        combined_cycle_gen = get(pivot_data[i, "Combined Cycle"], 0.0)
-        combustion_turbine_gen = get(pivot_data[i, "Combustion Turbine"], 0.0)
-        internal_combustion_gen = get(pivot_data[i, "Internal Combustion"], 0.0)
-        jet_engine_gen = get(pivot_data[i, "Jet Engine"], 0.0)
-        steam_turbine_gen = get(pivot_data[i, "Steam Turbine"], 0.0)
+        combined_cycle_gen = pivot_data[i, "Combined Cycle"]
+        combustion_turbine_gen = pivot_data[i, "Combustion Turbine"]
+        internal_combustion_gen = pivot_data[i, "Internal Combustion"]
+        jet_engine_gen = pivot_data[i, "Jet Engine"]
+        steam_turbine_gen = pivot_data[i, "Steam Turbine"]
 
         # Calculate emissions for each type
         emission_cc = combined_cycle_gen * heat_rates["Combined Cycle"] * carbon_contents["Combined Cycle"]
@@ -113,11 +120,11 @@ function SimulatedCO2EmissionCalc(scenario)
     pivot_data[!, "Internal_Combustion_CO2_Emissions"] = emissions_internal_combustion
     pivot_data[!, "Jet_Engine_CO2_Emissions"] = emissions_jet_engine
     pivot_data[!, "Steam_Turbine_CO2_Emissions"] = emissions_steam_turbine
-
+    
     return pivot_data
 end
 
-
+#=
 if Scenario == 0
     # Calculate emissions for the baseline scenario using SimulatedCO2EmissionCalc
     simulated_emissions = SimulatedCO2EmissionCalc(Scenario)
@@ -130,16 +137,17 @@ if Scenario == 0
     steam_turbine = simulated_emissions[!, "Steam_Turbine_CO2_Emissions"]
 
     # Plot the baseline emissions
-    months = simulated_emissions.Timestamp
-    baseline_data = [combined_cycle combustion_turbine internal_combustion jet_engine steam_turbine]
+    
+    
+    month_abbreviations_fuel = Dates.format.(simulated_emissions.YearMonth, "UUU")  # Extract month abbreviations  
+    unique!(month_abbreviations_fuel)
 
-    groupedbar(
-        months, baseline_data,
+    groupedbar([combined_cycle combustion_turbine internal_combustion jet_engine steam_turbine],
         label=["Combined Cycle" "Combustion Turbine" "Internal Combustion" "Jet Engine" "Steam Turbine"],
         bar_position=:stack,
         xlabel="Months",
         ylabel="CO₂ Emissions (tons)",
-        xticks=(1:length(months), [monthname(month) for month in months]),
+        xticks=(1:length(simulated_emissions.Timestamp), month_abbreviations_fuel),  # Use month abbreviations for x-axis labels
         title="CO₂ Emissions by Technology and Month (Baseline Scenario)",
         legend=:topright,
         rotation=45
@@ -176,6 +184,8 @@ else
     # Prepare data for plotting the difference
     months = simulated_emissions_scenario.Timestamp
     diff_data = [combined_cycle_diff combustion_turbine_diff internal_combustion_diff jet_engine_diff steam_turbine_diff]
+    month_abbreviations_fuel = Dates.format.(simulated_emissions_scenario.YearMonth, "UUU")  # Extract month abbreviations
+    unique!(month_abbreviations_fuel)
 
     groupedbar(
         months, diff_data,
@@ -193,7 +203,7 @@ else
     savefig(joinpath(save_dir, "CO2Emissions_Difference_Scenario$(Scenario).png"))
 end
 
-
+=#
 function RealCO2EmissionCalc(scenario)
     pivot_data, dual_fuel, hydro, natural_gas, nuclear, other_fossil, other_renewables, wind_pivot = fuelmix(scenario)
     # Extract generation data for each fuel category from pivot_data
