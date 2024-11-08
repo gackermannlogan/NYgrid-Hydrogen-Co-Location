@@ -7,7 +7,7 @@ include("GroupData.jl")
 using Glob, CSV, DataFrames, Plots, MAT, Dates, Statistics
 
 # Define the directory where the plots will be saved
-Scenario = 2
+Scenario = 1
 
 save_dir = "/Users/ga345/Desktop/Hydrogen Results/"
 mkpath(save_dir2) # Create the directory if it doesn't exist
@@ -161,7 +161,7 @@ function ScenarioLMP(scenario, save_dir)
     end
 
     # Calculate LMP data for the specified scenario
-    LMP_data = calculate_LMPs(results_path, scenario_save_dir)
+    LMP_data = calculate_LMPs(results_path, save_dir)
 
     # Process YearMonth and YearMonthDate columns for aggregation
     LMP_data.YearMonth = Dates.format.(LMP_data.Timestamp, "yyyy-mm-dd")
@@ -186,8 +186,8 @@ function ScenarioLMP(scenario, save_dir)
     savefig(joinpath(save_dir, "Monthly_LMP_Scenario$(Scenario).png"))
 end
 
-ScenarioLMP(1, save_dir2)  # Call this function with the desired scenario number
-
+# Call Function 
+ScenarioLMP(Scenario, save_dir2)  
 
 #------------------ Difference in LMP from Baseline ------------------# 
 function LMPDifference(scenario, save_dir)
@@ -197,8 +197,8 @@ function LMPDifference(scenario, save_dir)
         scenario_path = "/Users/ga345/Desktop/NYgrid-main/Result_Scenario$(Scenario)/2019/OPF/"
     
         # Calculate LMPs for baseline and scenario
-        baseline_LMP_data = calculate_LMP_for_all_buses(baseline_path, save_dir)
-        scenario_LMP_data = calculate_LMP_for_all_buses(scenario_path, save_dir)
+        baseline_LMP_data = calculate_LMPs(baseline_path, save_dir)
+        scenario_LMP_data = calculate_LMPs(scenario_path, save_dir)
     
         # Process YearMonthDate for both baseline and scenario data
         baseline_LMP_data.YearMonthDate = Dates.format.(baseline_LMP_data.Timestamp, "yyyy-mm")
