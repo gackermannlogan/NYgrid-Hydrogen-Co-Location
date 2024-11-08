@@ -1,65 +1,183 @@
 # Author: Gabriela Ackermann Logan, Cornell University
-# Last modified: October 2024
+# Last modified: Novemember 2024
 
 # Import Fundtions 
 include("GroupData.jl")
 
+using Glob, CSV, DataFrames, Plots, MAT, Dates, Statistics
+
 # Define the directory where the plots will be saved
-save_dir = "/Users/ga345/Desktop/Hydrogen Results/Scenario$(Scenario)"
-mkpath(save_dir) # Create the directory if it doesn't exist
+Scenario = 2
+
+save_dir = "/Users/ga345/Desktop/Hydrogen Results/"
+mkpath(save_dir2) # Create the directory if it doesn't exist
+
+# Define the directory where the plots will be saved
+save_dir2 = "/Users/ga345/Desktop/Hydrogen Results/Scenario$(Scenario)"
+mkpath(save_dir2) # Create the directory if it doesn't exist
 
 ##################################################### LMP Comparison #####################################################
-# Get the csv files for Hydrogen Results
-all_baseline_results = glob("BaslineResults_date*.csv", resultspath_base) # Use Glob to find only Baseline Results 
-all_result_scenario2 = glob("HydrogenResults_Scenario2_*.csv", resultspath)
+function AllScenariosLMP(save_directory)
+    # need to make into a fucntion
+    # First plot the baseline results 
+    resultspath_base = "/Users/ga345/Desktop/NYgrid-main/Result_Baseline/2019/OPF/"
+    all_baseline_results = glob("BaslineResults_date*.csv", resultspath_base)
 
-# all__baseline_data will store all the results (combine all CSV files)
-all_baseline_data = DataFrame()
+    all_baseline_data = DataFrame()
 
-# Iterate through all files and ensure types are consistent
-for file in all_baseline_results
-    base_data = CSV.read(file, DataFrame)
-    # Append the data
-    append!(all_baseline_data, base_data, promote=true)
+    # Iterate through all files and ensure types are consistent
+    for file in all_baseline_results
+        base_data = CSV.read(file, DataFrame)
+        # Append the data
+        append!(all_baseline_data, base_data, promote=true)
+    end
+
+    group_data_baseline = combine(groupby(all_baseline_data, [:Zone]), 
+                                        :LMP => mean => :Average_LMP)
+    group_data_baseline= group_data_baseline[1:11,:]
+
+    # Create the bar chart for all zones
+    bar(1:length(group_data_baseline.Zone), group_data_baseline.Average_LMP,
+        label="LMP(USD)",
+        title= "LMP Across Zones",
+        xlabel= "Zones", ylabel="LMP(USD)",
+        xticks=(1:length(group_data_baseline.Zone), group_data_baseline.Zone),  # Use zone names for x-axis labels
+        legend = :topright,
+        color="#1E88E5", bar_width=0.8)
+    savefig(joinpath(save_directory, "All_Zones_Baseline_LMP.png"))
+
+    # Then go through the different Scenarios 
+    resultspath_scenario1 = "/Users/ga345/Desktop/NYgrid-main/Result_Scenario1/2019/OPF/"
+    resultspath_scenario2 = "/Users/ga345/Desktop/NYgrid-main/Result_Scenario2/2019/OPF/"
+    resultspath_scenario3 = "/Users/ga345/Desktop/NYgrid-main/Result_Scenario3/2019/OPF/"
+    all_result_scenario1 = glob("HydrogenResults_Scenario1_*.csv", resultspath_scenario1)
+    all_result_scenario2 = glob("HydrogenResults_Scenario2_*.csv", resultspath_scenario2)
+    all_result_scenario3 = glob("HydrogenResults_Scenario3_*.csv", resultspath_scenario3)
+
+    all_scenario1_data = DataFrame()
+    # Iterate through all files and ensure types are consistent
+    for file in all_result_scenario1
+        file_data = CSV.read(file, DataFrame)
+        # Append the data
+        append!(all_scenario1_data, file_data, promote=true)
+    end
+
+    all_scenario2_data = DataFrame()
+    # Iterate through all files and ensure types are consistent
+    for file in all_result_scenario2
+        file_data = CSV.read(file, DataFrame)
+        # Append the data
+        append!(all_scenario2_data, file_data, promote=true)
+    end
+
+    all_scenario3_data = DataFrame()
+    # Iterate through all files and ensure types are consistent
+    for file in all_result_scenario3
+        file_data = CSV.read(file, DataFrame)
+        # Append the data
+        append!(all_scenario3_data, file_data, promote=true)
+    end
+
+    group_data_scenario1 = combine(groupby(all_scenario1_data, [:Zone]), 
+                                            :LMP => mean => :Average_LMP)
+    
+    group_data_scenario2 = combine(groupby(all_scenario2_data, [:Zone]), 
+                                            :LMP => mean => :Average_LMP)
+
+    group_data_scenario3 = combine(groupby(all_scenario3_data, [:Zone]), 
+                                            :LMP => mean => :Average_LMP)    
+                                            
+    # Create a line chart to compare LMPs
+    plot(group_data_baseline.Zone, group_data_baseline.Average_LMP, label = "Baseline", linewidth =2, color = "blue")
+    plot!(group_data_scenario1.Zone, group_data_scenario1.Average_LMP, label = "Scenario 1",linewidth =2, color = "green")
+    plot!(group_data_scenario2.Zone, group_data_scenario2.Average_LMP, label = "Scenario 2",linewidth =2, color = "purple")
+    plot!(group_data_scenario3.Zone, group_data_scenario3.Average_LMP, label = "Scenario 3",linewidth =2, color = "orange")
+
+    xlabel!("Zone")
+    ylabel!("Average LMP (USD)")
+    title!("Comparison of Average LMPs")
+    savefig(joinpath(save_directory, "Compare_Zones_LMP.png"))
 end
 
-group_data_baseline = combine(groupby(all_baseline_data, [:Zone]), 
-                                    :LMP => mean => :Average_LMP)
-group_data_baseline= group_data_baseline[1:11,:]
+AllScenariosLMP(save_dir)
 
-all_scenario2_data = DataFrame()
-# Iterate through all files and ensure types are consistent
-for file in all_result_scenario2
-    file_data = CSV.read(file, DataFrame)
-    # Append the data
-    append!(all_scenario2_data, file_data, promote=true)
+##################################################### LMP Calculations #####################################################
+function calculate_LMP_for_all_buses(results_path, save_dir)
+    # Initialize an empty DataFrame to store LMP results for all buses across all timestamps
+    all_LMP_data = DataFrame(Timestamp = DateTime[], Bus = Int[], LMP = Float64[])
+
+    # Filter for .mat files in the specified directory
+    mat_files = filter(f -> endswith(f, ".mat"), readdir(results_path; join=true))
+
+    for file_path in mat_files
+        if occursin(r"resultOPF.*\.mat", file_path)  # Only process files that match the pattern
+            # Extract the timestamp from the filename
+            filename = basename(file_path)
+            timestamp_str = match(r"\d{8}_\d{2}", filename).match  # Extract 'yyyymmdd_hh'
+            timestamp = DateTime(timestamp_str, "yyyymmdd_HH")
+
+            # Open the .mat file and read data
+            file = matopen(file_path)
+            data = read(file, "resultOPF")
+            close(file)
+
+            # Extract bus data
+            bus_data = data["bus"]  # Assuming bus data has columns: [BUS_I, PD, LAM_P]
+
+            # Initialize vector to store LMPs for this timestamp
+            lmp_values = Float64[]
+
+            # Calculate LMP for each bus
+            for row in eachrow(bus_data)
+                bus_id = row[1]
+                load = row[3]
+                price = row[4]
+
+                # Weighted LMP calculation
+                if load == 0
+                    avg_price = mean(bus_data[:,14])  # Unweighted average if total load is zero
+                else
+                    avg_price = sum(bus_data[:,3] .* bus_data[:, 14]) / sum(bus_data[:,3])
+                end
+
+                # Append LMP data for this bus and timestamp
+                push!(lmp_values, avg_price)
+                append!(all_LMP_data, DataFrame(Timestamp = [timestamp], Bus = [bus_id], LMP = [avg_price]))
+            end
+        end
+    end
+
+    # Save the LMP data
+    # CSV.write(joinpath(save_dir, "All_Buses_LMP.csv"), all_LMP_data)
+    return all_LMP_data
 end
 
-# Create the bar chart for all zones
-bar(1:length(group_data_baseline.Zone), group_data_baseline.Average_LMP,
-    label="LMP(USD)",
-    title= "LMP Across Zones",
-    xlabel= "Zones", ylabel="LMP(USD)",
-    xticks=(1:length(group_data_baseline.Zone), group_data_baseline.Zone),  # Use zone names for x-axis labels
-    legend = :topright,
-    color="#1E88E5", bar_width=0.8)
-savefig(joinpath(save_dir, "All_Zones_Baseline_LMP.png"))
+# Define paths and call function
+results_path = "/Users/ga345/Desktop/NYgrid-main/Result_Scenario$(Scenario)/2019/OPF/"
+LMP_data = calculate_LMP_for_all_buses(results_path, save_dir)
 
-group_data_scenario1 = combine(groupby(all_data, [:Zone]), 
-                                        :LMP => mean => :Average_LMP)
- 
- group_data_scenario2 = combine(groupby(all_scenario2_data, [:Zone]), 
-                                        :LMP => mean => :Average_LMP)
-# Create a line chart to compare LMPs
-plot(group_data_baseline.Zone, group_data_baseline.Average_LMP, label = "Baseline", linewidth =2, color = "blue")
-plot!(group_data_scenario1.Zone, group_data_scenario1.Average_LMP, label = "Scenario 1",linewidth =2, color = "green")
-plot!(group_data_scenario2.Zone, group_data_scenario2.Average_LMP, label = "Scenario 2",linewidth =2, color = "purple")
+LMP_data.YearMonth = Dates.format.(LMP_data.Timestamp, "yyyy-mm-dd")
+LMP_data[!, :YearMonth] = Dates.Date.(LMP_data.YearMonth, "yyyy-mm-dd")
+LMP_data[!, :YearMonthDate] = Dates.format.(LMP_data.YearMonth, "yyyy-mm")
 
-xlabel!("Zone")
-ylabel!("Average LMP (USD)")
-title!("Comparison of Average LMPs")
-savefig(joinpath(save_dir, "Compare_Zones_LMP.png"))
+# Group and aggregate data by YearMonth
+grouped_LMP_data = combine(groupby(LMP_data, [:YearMonthDate]), :LMP => mean => :AverageLMP)
+grouped_LMP_data[!, :YearMonth] = Dates.Date.(grouped_LMP_data.YearMonthDate, "yyyy-mm")
+month_abbreviations_LMP = Dates.format.(grouped_LMP_data.YearMonth, "UUU")  # Extract month abbreviations
+unique!(month_abbreviations_LMP)
 
+# Plot LMP across buses for a selected time period or scenario as needed
+bar(grouped_LMP_data.AverageLMP,
+    label="Scenario 1 LMP", 
+    xlabel="Month", ylabel="LMP (USD)", 
+    xticks=(1:length(grouped_LMP_data.YearMonthDate), month_abbreviations_LMP),  # Use month abbreviations for x-axis labels
+    title="Monthly LMP for 2019 Grid",
+    legend=:topright, rotation=45,)
+savefig(joinpath(save_dir2, "Monthly_LMP.png"))
+
+#------------------ Difference in LMP from Baseline ------------------# 
+
+#=
 ##################################################### Plotting for when power sold vs bought #####################################################
 # Calculate total cost and revenue 
 all_data.power_sold = all_data.WindpowerSold .* all_data.LMP
@@ -81,7 +199,7 @@ bar(1:length(group_data_sold.Zone), [group_data_sold.Mean_Sold group_data_sold.M
     color=["#D81B60" "#1E88E5"], bar_width=0.8)
 # Save figure
 savefig(joinpath(save_dir, "Net_Market_Participation_Revenue_vs_Cost_by_Zone.png"))
-#=
+
 #------------------------------------------------------- Plotting by zone - net revenue vs cost -------------------------------------------------------#
 # Group by Zone 
 group_data_sold = combine(groupby(all_data, :Zone),
@@ -122,7 +240,7 @@ bar(["Cost", "Revenue"], [total_cost, total_revenue],
     color=[:gray, :green], bar_width=0.8)
 # Save figure
 savefig(joinpath(save_dir, "Net_Market_Participation_Revenue_vs_Cost.png"))
-=#
+
 
 
 
@@ -221,3 +339,4 @@ end
 # Filter the data to include only rows where the Zone is "A"
 # zone_a_data = filter(row -> row[:Zone] == "K", all_data)
 # display(zone_a_data)
+=#
