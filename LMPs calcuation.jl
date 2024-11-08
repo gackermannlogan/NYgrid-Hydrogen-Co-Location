@@ -102,7 +102,7 @@ end
 AllScenariosLMP(save_dir)
 
 ##################################################### LMP Calculations #####################################################
-function calculate_LMP_for_all_buses(results_path, save_dir)
+function calculate_LMPs(results_path, save_dir)
     # Initialize an empty DataFrame to store LMP results for all buses across all timestamps
     all_LMP_data = DataFrame(Timestamp = DateTime[], Bus = Int[], LMP = Float64[])
 
@@ -152,30 +152,90 @@ function calculate_LMP_for_all_buses(results_path, save_dir)
     return all_LMP_data
 end
 
-# Define paths and call function
-results_path = "/Users/ga345/Desktop/NYgrid-main/Result_Scenario$(Scenario)/2019/OPF/"
-LMP_data = calculate_LMP_for_all_buses(results_path, save_dir)
+function ScenarioLMP(scenario, save_dir)
+    # Set the results path based on the scenario
+    results_path = if Scenario == 0
+        "/Users/ga345/Desktop/NYgrid-main/Result_Baseline/2019/OPF/"
+    else
+        "/Users/ga345/Desktop/NYgrid-main/Result_Scenario$(Scenario)/2019/OPF/"
+    end
 
-LMP_data.YearMonth = Dates.format.(LMP_data.Timestamp, "yyyy-mm-dd")
-LMP_data[!, :YearMonth] = Dates.Date.(LMP_data.YearMonth, "yyyy-mm-dd")
-LMP_data[!, :YearMonthDate] = Dates.format.(LMP_data.YearMonth, "yyyy-mm")
+    # Calculate LMP data for the specified scenario
+    LMP_data = calculate_LMPs(results_path, scenario_save_dir)
 
-# Group and aggregate data by YearMonth
-grouped_LMP_data = combine(groupby(LMP_data, [:YearMonthDate]), :LMP => mean => :AverageLMP)
-grouped_LMP_data[!, :YearMonth] = Dates.Date.(grouped_LMP_data.YearMonthDate, "yyyy-mm")
-month_abbreviations_LMP = Dates.format.(grouped_LMP_data.YearMonth, "UUU")  # Extract month abbreviations
-unique!(month_abbreviations_LMP)
+    # Process YearMonth and YearMonthDate columns for aggregation
+    LMP_data.YearMonth = Dates.format.(LMP_data.Timestamp, "yyyy-mm-dd")
+    LMP_data[!, :YearMonth] = Dates.Date.(LMP_data.YearMonth, "yyyy-mm-dd")
+    LMP_data[!, :YearMonthDate] = Dates.format.(LMP_data.YearMonth, "yyyy-mm")
 
-# Plot LMP across buses for a selected time period or scenario as needed
-bar(grouped_LMP_data.AverageLMP,
-    label="Scenario 1 LMP", 
-    xlabel="Month", ylabel="LMP (USD)", 
-    xticks=(1:length(grouped_LMP_data.YearMonthDate), month_abbreviations_LMP),  # Use month abbreviations for x-axis labels
-    title="Monthly LMP for 2019 Grid",
-    legend=:topright, rotation=45,)
-savefig(joinpath(save_dir2, "Monthly_LMP.png"))
+    # Group and aggregate data by YearMonthDate
+    grouped_LMP_data = combine(groupby(LMP_data, [:YearMonthDate]), :LMP => mean => :AverageLMP)
+    grouped_LMP_data[!, :YearMonth] = Dates.Date.(grouped_LMP_data.YearMonthDate, "yyyy-mm")
+    month_abbreviations_LMP = Dates.format.(grouped_LMP_data.YearMonth, "UUU")  # Extract month abbreviations
+    unique!(month_abbreviations_LMP)
+
+    # Plot LMP across buses for the scenario
+    bar(
+        grouped_LMP_data.AverageLMP,
+        label="Scenario $(Scenario) LMP", 
+        xlabel="Month", ylabel="LMP (USD)", 
+        xticks=(1:length(grouped_LMP_data.YearMonthDate), month_abbreviations_LMP),  # Use month abbreviations for x-axis labels
+        title="Monthly LMP for 2019 Grid (Scenario $(Scenario))",
+        legend=:topright, rotation=45,
+    )
+    savefig(joinpath(save_dir, "Monthly_LMP_Scenario$(Scenario).png"))
+end
+
+ScenarioLMP(1, save_dir2)  # Call this function with the desired scenario number
+
 
 #------------------ Difference in LMP from Baseline ------------------# 
+function LMPDifference(scenario, save_dir)
+    if Scenario !== 0
+        # Define paths for baseline and scenario data
+        baseline_path = "/Users/ga345/Desktop/NYgrid-main/Result_Baseline/2019/OPF/"
+        scenario_path = "/Users/ga345/Desktop/NYgrid-main/Result_Scenario$(Scenario)/2019/OPF/"
+    
+        # Calculate LMPs for baseline and scenario
+        baseline_LMP_data = calculate_LMP_for_all_buses(baseline_path, save_dir)
+        scenario_LMP_data = calculate_LMP_for_all_buses(scenario_path, save_dir)
+    
+        # Process YearMonthDate for both baseline and scenario data
+        baseline_LMP_data.YearMonthDate = Dates.format.(baseline_LMP_data.Timestamp, "yyyy-mm")
+        scenario_LMP_data.YearMonthDate = Dates.format.(scenario_LMP_data.Timestamp, "yyyy-mm")
+    
+        # Group and aggregate data by YearMonthDate to calculate average LMP per month
+        grouped_baseline_LMP = combine(groupby(baseline_LMP_data, [:YearMonthDate]), :LMP => mean => :AverageLMP)
+        grouped_scenario_LMP = combine(groupby(scenario_LMP_data, [:YearMonthDate]), :LMP => mean => :AverageLMP)
+    
+        # Join baseline and scenario data on YearMonthDate
+        combined_LMP = innerjoin(grouped_baseline_LMP, grouped_scenario_LMP, on=:YearMonthDate, makeunique=true)
+    
+        # Rename columns for clarity
+        rename!(combined_LMP, Dict("AverageLMP_1" => "Baseline_AverageLMP", "AverageLMP_2" => "Scenario_AverageLMP"))
+    
+        # Calculate LMP difference
+        combined_LMP[!, :LMP_Difference] = combined_LMP.Scenario_AverageLMP .- combined_LMP.Baseline_AverageLMP
+    
+        # Convert YearMonthDate to Date for plotting
+        combined_LMP[!, :YearMonth] = Dates.Date.(combined_LMP.YearMonthDate, "yyyy-mm")
+        month_abbreviations_LMP = Dates.format.(combined_LMP.YearMonth, "UUU")
+    
+        # Plot the difference in LMP
+        bar(
+            combined_LMP.YearMonthDate, combined_LMP.LMP_Difference,
+            label="LMP Difference (Scenario - Baseline)",
+            xlabel="Month", ylabel="LMP Difference (USD)",
+            xticks=(1:length(combined_LMP.YearMonthDate), month_abbreviations_LMP),
+            title="Monthly LMP Difference from Baseline (Scenario $(Scenario))",
+            legend=:topright, rotation=45
+        )
+        savefig(joinpath(save_dir, "Monthly_LMP_Difference.png"))
+    end
+end
+
+# Example usage
+LMPDifference(Scenario, save_dir2)  # Call this function with the desired scenario number
 
 #=
 ##################################################### Plotting for when power sold vs bought #####################################################
