@@ -4,13 +4,13 @@
 # Import Fundtions 
 include("GroupData.jl")
 
-using Glob, CSV, DataFrames, Plots, MAT, Dates, Statistics
+using Glob, CSV, DataFrames, Plots, MAT, Dates, Statistics, StatsPlots
 
 # Define the directory where the plots will be saved
-Scenario = 1
+Scenario = 0
 
 save_dir = "/Users/ga345/Desktop/Hydrogen Results/"
-mkpath(save_dir2) # Create the directory if it doesn't exist
+mkpath(save_dir) # Create the directory if it doesn't exist
 
 # Define the directory where the plots will be saved
 save_dir2 = "/Users/ga345/Desktop/Hydrogen Results/Scenario$(Scenario)"
@@ -97,6 +97,32 @@ function AllScenariosLMP(save_directory)
     ylabel!("Average LMP (USD)")
     title!("Comparison of Average LMPs")
     savefig(joinpath(save_directory, "Compare_Zones_LMP.png"))
+
+    # Combine data from all scenarios into single DataFrame
+    combined_data = vcat(
+        DataFrame(Scenario = "Baseline", LMP = group_data_baseline.Average_LMP), 
+        DataFrame(Scenario = "Scenario 1", LMP = group_data_scenario1.Average_LMP), 
+        DataFrame(Scenario = "Scenario 2", LMP = group_data_scenario2.Average_LMP),
+        DataFrame(Scenario = "Scenario 3", LMP = group_data_scenario3.Average_LMP)
+    )
+
+    # Create a box plot to compare LMPs
+    boxplot(combined_data.Scenario, combined_data.LMP, ylabel = "LMP", title= "LMP Distrubtion Across Scenarios", legend = false)
+    savefig(joinpath(save_directory, "Boxplot_LMP.png"))
+
+    # Create a violin plot to compare LMPs
+    violin(combined_data.Scenario, combined_data.LMP, ylabel = "LMP", title= "LMP Distrubtion Across Scenarios", legend = false)
+    savefig(joinpath(save_directory, "Violinplot_LMP.png"))
+
+    zones = unique(all_scenario1_data.Zone)
+    scenarios = ["Scenario 1", "Scenario 2", "Scenario 3"]
+
+    # Construct a matrix with average LMPs per zone and scenario
+    lmp_matrix = [group_data_scenario1.Average_LMP group_data_scenario2.Average_LMP group_data_scenario3.Average_LMP]
+
+    heatmap(scenarios, zones, lmp_matrix, color=:thermal, xlabel="Scenario", ylabel="Zone", title="Average LMP by Zone and Scenario")
+    savefig(joinpath(save_directory, "Heatmap_LMP.png"))
+
 end
 
 AllScenariosLMP(save_dir)
@@ -181,7 +207,7 @@ function ScenarioLMP(scenario, save_dir)
         xlabel="Month", ylabel="LMP (USD)", 
         xticks=(1:length(grouped_LMP_data.YearMonthDate), month_abbreviations_LMP),  # Use month abbreviations for x-axis labels
         title="Monthly LMP for 2019 Grid (Scenario $(Scenario))",
-        legend=:topright, rotation=45,
+        legend=:topright, rotation=45, color ="#D81B60"
     )
     savefig(joinpath(save_dir, "Monthly_LMP_Scenario$(Scenario).png"))
 end
@@ -194,28 +220,30 @@ function LMPDifference(scenario, save_dir)
     if Scenario !== 0
         # Define paths for baseline and scenario data
         baseline_path = "/Users/ga345/Desktop/NYgrid-main/Result_Baseline/2019/OPF/"
-        scenario_path = "/Users/ga345/Desktop/NYgrid-main/Result_Scenario$(Scenario)/2019/OPF/"
+        scenario_path = "/Users/ga345/Desktop/NYgrid-main/Result_Scenario$(scenario)/2019/OPF/"
     
         # Calculate LMPs for baseline and scenario
         baseline_LMP_data = calculate_LMPs(baseline_path, save_dir)
-        scenario_LMP_data = calculate_LMPs(scenario_path, save_dir)
+        scenario_LMP_data = calculate_LMPs(scenario_path, save_dir) 
     
         # Process YearMonthDate for both baseline and scenario data
-        baseline_LMP_data.YearMonthDate = Dates.format.(baseline_LMP_data.Timestamp, "yyyy-mm")
-        scenario_LMP_data.YearMonthDate = Dates.format.(scenario_LMP_data.Timestamp, "yyyy-mm")
+        baseline_LMP_data.YearMonth = Dates.format.(baseline_LMP_data.Timestamp, "yyyy-mm-dd")
+        baseline_LMP_data[!, :YearMonth] = Dates.Date.(baseline_LMP_data.YearMonth, "yyyy-mm-dd")
+        baseline_LMP_data[!, :YearMonthDate] = Dates.format.(baseline_LMP_data.YearMonth, "yyyy-mm")
+
+        scenario_LMP_data.YearMonth = Dates.format.(scenario_LMP_data.Timestamp, "yyyy-mm-dd")
+        scenario_LMP_data[!, :YearMonth] = Dates.Date.(scenario_LMP_data.YearMonth, "yyyy-mm-dd")
+        scenario_LMP_data[!, :YearMonthDate] = Dates.format.(scenario_LMP_data.YearMonth, "yyyy-mm")
     
         # Group and aggregate data by YearMonthDate to calculate average LMP per month
-        grouped_baseline_LMP = combine(groupby(baseline_LMP_data, [:YearMonthDate]), :LMP => mean => :AverageLMP)
-        grouped_scenario_LMP = combine(groupby(scenario_LMP_data, [:YearMonthDate]), :LMP => mean => :AverageLMP)
+        grouped_baseline_LMP = combine(groupby(baseline_LMP_data, [:YearMonthDate]), :LMP => mean => :AverageLMP_base)
+        grouped_scenario_LMP = combine(groupby(scenario_LMP_data, [:YearMonthDate]), :LMP => mean => :AverageLMP_scenario)
     
         # Join baseline and scenario data on YearMonthDate
         combined_LMP = innerjoin(grouped_baseline_LMP, grouped_scenario_LMP, on=:YearMonthDate, makeunique=true)
     
-        # Rename columns for clarity
-        rename!(combined_LMP, Dict("AverageLMP_1" => "Baseline_AverageLMP", "AverageLMP_2" => "Scenario_AverageLMP"))
-    
         # Calculate LMP difference
-        combined_LMP[!, :LMP_Difference] = combined_LMP.Scenario_AverageLMP .- combined_LMP.Baseline_AverageLMP
+        combined_LMP[!, :LMP_Difference] = combined_LMP.AverageLMP_base.- combined_LMP.AverageLMP_scenario 
     
         # Convert YearMonthDate to Date for plotting
         combined_LMP[!, :YearMonth] = Dates.Date.(combined_LMP.YearMonthDate, "yyyy-mm")
@@ -227,8 +255,8 @@ function LMPDifference(scenario, save_dir)
             label="LMP Difference (Scenario - Baseline)",
             xlabel="Month", ylabel="LMP Difference (USD)",
             xticks=(1:length(combined_LMP.YearMonthDate), month_abbreviations_LMP),
-            title="Monthly LMP Difference from Baseline (Scenario $(Scenario))",
-            legend=:topright, rotation=45
+            title="Monthly LMP Difference from Baseline (Scenario $(scenario))",
+            legend=:topright, rotation=45, color = "#D81B60"
         )
         savefig(joinpath(save_dir, "Monthly_LMP_Difference.png"))
     end
