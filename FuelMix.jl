@@ -111,7 +111,7 @@ function fuelmixplotting(scenario)
     # Add a YearMonth column for monthly grouping
     all_fuel_data.YearMonth = Dates.format.(all_fuel_data.Timestamp, "yyyy-mm-dd")
     all_fuel_data[!, :YearMonth] = Dates.Date.(all_fuel_data.YearMonth, "yyyy-mm-dd")
-    all_fuel_data[!, :YearMonthDate] = Dates.format.( all_fuel_data.YearMonth, "yyyy-mm")
+    all_fuel_data[!, :YearMonthDate] = Dates.format.(all_fuel_data.YearMonth, "yyyy-mm")
 
     # Group and aggregate data by YearMonth and FuelType
     grouped_data = combine(groupby(all_fuel_data, [:YearMonthDate, :FuelType]), :Power => sum => :TotalPower)
