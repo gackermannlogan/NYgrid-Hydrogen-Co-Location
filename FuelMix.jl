@@ -5,7 +5,7 @@
 include("OpenDataHydrogen.jl")
 
 # Define Scenario 
-Scenario = 1
+Scenario = 0
 
 # Define the directory where the plots will be saved
 save_dir = "/Users/ga345/Desktop/Hydrogen Results/Scenario$(Scenario)"
@@ -132,28 +132,46 @@ if Scenario == 0
     thermal_fuel = plot_data[!, "Thermal"]
     nuclear = plot_data[!, "Nuclear"]
     hydro = plot_data[!, "Hydro"]
-    #import_data = plot_data[!, "Import"]
+    import_data = plot_data[!, "Import"]
     wind_pivot = plot_data[!,"Wind"]
     solar_pivot = plot_data[!,"Solar"]
 
-    groupedbar([thermal_fuel nuclear hydro wind_pivot solar_pivot],
-        label= ["Thermal" "Nuclear" "Hydro" "Wind" "Solar" ],
+    groupedbar([thermal_fuel nuclear hydro import_data wind_pivot solar_pivot],
+        label= ["Thermal" "Nuclear" "Hydro" "Import" "Wind" "Solar"],
         bar_position = :stack,
         xlabel="Months", ylabel="Generation (MWh)",  
         xticks=(1:length(grouped_fuel.YearMonthDate), month_abbreviations_fuel),  # Use month abbreviations for x-axis labels
         title= "Fuel Mix Over Year",
         legend=:topright,
         rotation=45,
-        color=["#648FFF" "#785EF0" "#DC267F" "#004D40" "#FE6100"], bar_width=0.8)
+        color=["#648FFF" "#785EF0" "#DC267F" "#004D40" "#FE6100" "#FFB000"], bar_width=0.8)
     # Save the plot
     savefig(joinpath(save_dir, "Simulated_FuelMix_by_Zone_Scenario$(Scenario).png"))
+
+    plot([thermal_fuel nuclear hydro import_data wind_pivot solar_pivot],
+        label= ["Thermal" "Nuclear" "Hydro" "Import" "Wind" "Solar"],
+        xlabel="Months", ylabel="Generation (MWh)", 
+        xticks=(1:length(grouped_fuel.YearMonthDate), month_abbreviations_fuel),  # Use month abbreviations for x-axis labels
+        title="Fuel Mix Over Year",
+        legend=:topright, lw=2,  rotation=45,
+        color=["#648FFF" "#785EF0" "#DC267F" "#004D40" "#FE6100" "#FFB000"])
+    savefig(joinpath(save_dir, "FuelMix_AreaChart_Scenario$(Scenario).png"))
+
+    fuel_matrix = hcat(thermal_fuel, nuclear, hydro, wind_pivot, solar_pivot)'
+
+    heatmap(month_abbreviations_fuel, ["Thermal", "Nuclear", "Hydro", "Wind", "Solar"], fuel_matrix,
+        xlabel="Month", ylabel="Fuel Type", 
+        title="Monthly Fuel Mix Heatmap",
+        color=:thermal, rotation=45)
+    savefig(joinpath(save_dir, "FuelMix_Heatmap_Scenario$(Scenario).png"))
+    
 else 
     # Get the baseline fuel mix
     all_fuel_data_base, plot_data_base, grouped_fuel_base = fuelmixplotting(0)
 
     # Get the relevant scenario data 
     all_fuel_data_scenario, plot_data_scenario, grouped_fuel_scenario= fuelmixplotting(Scenario)
-
+    plot_data = deepcopy(plot_data_scenario)
     # Calculate the difference in datasets 
     plot_data[:, Not([:YearMonthDate])] .= plot_data_base[:, Not([:YearMonthDate])] .- plot_data_scenario[:, Not([:YearMonthDate])]
     month_abbreviations_fuel = Dates.format.(all_fuel_data_scenario.YearMonth, "UUU")  # Extract month abbreviations
@@ -162,21 +180,40 @@ else
     thermal_fuel = plot_data[!, "Thermal"]
     nuclear = plot_data[!, "Nuclear"]
     hydro = plot_data[!, "Hydro"]
-    #import_data = plot_data[!, "Import"]
+    import_data = plot_data[!, "Import"]
     wind_pivot = plot_data[!,"Wind"]
     solar_pivot = plot_data[!,"Solar"]
 
-    groupedbar([thermal_fuel nuclear hydro wind_pivot solar_pivot],
-        label= ["Thermal" "Nuclear" "Hydro" "Wind" "Solar" ],
+    groupedbar([thermal_fuel nuclear hydro import_data wind_pivot solar_pivot],
+        label= ["Thermal" "Nuclear" "Hydro" "Import" "Wind" "Solar"],
         bar_position = :stack,
         xlabel="Months", ylabel="Generation (MWh)",  
-        xticks=(1:length(grouped_fuel.YearMonthDate), month_abbreviations_fuel),  # Use month abbreviations for x-axis labels
+        xticks=(1:length( grouped_fuel_base.YearMonthDate), month_abbreviations_fuel),  # Use month abbreviations for x-axis labels
         title= "Difference in Fuel Mix Over Year",
         legend=:topright,
         rotation=45,
-        color=["#648FFF" "#785EF0" "#DC267F" "#004D40" "#FE6100"], bar_width=0.8)
+        color=["#648FFF" "#785EF0" "#DC267F" "#004D40" "#FE6100" "#FFB000"], bar_width=0.8)
     # Save the plot
     savefig(joinpath(save_dir, "Simulated_FuelMix_by_Zone_Scenario$(Scenario).png"))   
+
+    plot([thermal_fuel nuclear hydro wind_pivot solar_pivot],
+        label= ["Thermal" "Nuclear" "Hydro" "Import" "Wind" "Solar"],
+        xlabel="Months", ylabel="Generation (MWh)", 
+        xticks=(1:length(grouped_fuel.YearMonthDate), month_abbreviations_fuel),  # Use month abbreviations for x-axis labels
+        title="Fuel Mix Over Year",
+        legend=:topright, lw=2,  rotation=45,
+        color=["#648FFF" "#785EF0" "#DC267F" "#004D40" "#FE6100" "#FFB000"])
+    savefig(joinpath(save_dir, "FuelMix_AreaChart_Scenario$(Scenario).png"))
+    
+    # Prepare data matrix for heatmap
+    fuel_matrix = hcat(thermal_fuel, nuclear, hydro, wind_pivot, solar_pivot)'
+
+    heatmap(month_abbreviations_fuel, ["Thermal", "Nuclear", "Hydro", "Wind", "Solar"], fuel_matrix,
+        xlabel="Month", ylabel="Fuel Type", 
+        title="Monthly Fuel Mix Heatmap",
+        color=:thermal, rotation=45)
+    savefig(joinpath(save_dir, "FuelMix_Heatmap_Scenario$(Scenario).png"))
+
 end
 
 #------------------ Plot hourly for day 7 - 12 in Janurary ------------------# 
@@ -235,9 +272,7 @@ bar(hourly_demand.Demand,
     )
 savefig(joinpath(save_dir2, "Demand_Jan.png"))
 
-
-
-################################################################### Real Fuel Mix ##########################################################################################
+################################################################### Real(data) Fuel Mix ##########################################################################################
 function fuelmix(scenario)
     if scenario == 0
         resultspath2 = "/Users/ga345/Desktop/NYgrid-main/Result_Baseline/2019/OPF"
