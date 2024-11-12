@@ -295,17 +295,10 @@ otherCfTot = otherGen/otherCapTot;
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Add co-located hydrogen plant
 hydrogen_demand = 200; % hydrogen plant demand in MW
-wind_capacity = 400;  % Wind farm capacity in MW
+wind_capacity = 1200;  % Wind farm capacity in MW
 
 % Define the list of zones from A to K
 zones = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K"];
-% 
-% % Edit Renewable Gen table to change max to wind capacity
-% for i = 1:height(renewableGen)
-%    if renewableGen.PgWindCap(i) < wind_capacity
-%        renewableGen.PgWindCap(i) = wind_capacity; % MW
-%    end
-% end
 
 % Initialize an empty table to store the results
 resultsTable = table();
@@ -329,19 +322,18 @@ for z = 1:length(zones)
     % First find all the buses that are in BusNumbersInZone and in RenweableGen
     % Initialize lists
     hydrogenbuses = [];
-    
+
     % Find all the buses that are in both busNumbersInZone and renewableGen
     for i = 1:height(busNumbersInZone)
         % Find matching bus numbers in renewableGen
         bus_idx = find(renewableGen.BusID == busNumbersInZone(i));
-        
         % Check if there's a match and if wind capacity is greater than 0
         if ~isempty(bus_idx) && renewableGen.PgWindCap(bus_idx) > 0
             hydrogenbuses = [hydrogenbuses, busNumbersInZone(i)]; % Save matching bus
         end
-            
+
     end
-    
+
     % Assign first hydrogen plant bus (if exists)
     if ~isempty(hydrogenbuses)
         hydrogen_plant_bus = hydrogenbuses(1);
@@ -361,7 +353,7 @@ for z = 1:length(zones)
 
            if renewableGen.PgWindCap(i) ~= 0
                % Calculate the wind generation at this bus using the capacity factor
-               wind_generation = windCfTot * renewableGen.PgWindCap(i);
+               wind_generation = windCfTot * renewableGen.PgWindCap(i)+ wind_capacity;
 
                %% Dispatch Logic: First, meet the hydrogen plant's demand, then inject into the grid
                if wind_generation >= hydrogen_demand
@@ -372,9 +364,25 @@ for z = 1:length(zones)
                    fprintf('Zone: %s, Bus: %d, Wind Generation: %.2f MW, Hydrogen Demand: %.2f MW, Surplus/Deficit: %.2f MW\n', ...
                    zone, hydrogen_plant_bus, wind_generation, hydrogen_demand, wind_after_hydrogen);
 
-                   % Inject excess wind generation into the grid (negative load)
-                   mpc.bus(renewableGen.BusID(i), PD) = mpc.bus(renewableGen.BusID(i), PD) ...
-                    - wind_after_hydrogen;
+                   % % Inject excess wind generation into the grid (negative load)
+                   % mpc.bus(renewableGen.BusID(i), PD) = mpc.bus(renewableGen.BusID(i), PD) ...
+                   %  - wind_after_hydrogen;
+
+                   %% Inject excess wind generation into the grid (gen)
+                    newGenRow = zeros(1, 21); % Initialize a new generator row with 21 columns (zeros initially)
+                    
+                    % Set specific fields based on your requirements
+                    newGenRow(GEN_BUS) = hydrogen_plant_bus;             % Bus ID for the generator
+                    newGenRow(PG) = wind_after_hydrogen;                 % Generated power (wind surplus)
+                    newGenRow(4) = 9999;                             % Reactive power max
+                    newGenRow(5) = -9999;                             % Reactive power min
+                    newGenRow(6) = 1;                                   % Voltage setpoint
+                    newGenRow(7) = 100;                              % MVA base
+                    newGenRow(8) = 1;                           % Generator status (1 = in service)
+                    newGenRow(17:19) = inf;  
+
+                    % Add the new generator row to the `mpc.gen` matrix
+                    mpc.gen = [mpc.gen; newGenRow];
 
                    fprintf('Surplus of %.2f MW injected into the grid at bus %d.\n', wind_after_hydrogen, hydrogen_plant_bus);
 
@@ -384,9 +392,9 @@ for z = 1:length(zones)
                    actual_generation = wind_generation;
                    avgprice = 0;
 
-                    % Append table with results 
-                    newRow = {zone, hydrogen_plant_bus, timeStamp, MWFromGrid, MWFromWind, Windexcess, actual_generation, avgprice}; % Append the results to the table
-                    resultsTable = [resultsTable; newRow];
+                   % Append table with results 
+                   newRow = {zone, hydrogen_plant_bus, timeStamp, MWFromGrid, MWFromWind, Windexcess, actual_generation, avgprice}; % Append the results to the table
+                   resultsTable = [resultsTable; newRow];
 
                else
                    % Wind generation is insufficient and all goes to hydrogen plant with no surplus
@@ -427,8 +435,7 @@ end
 % Set the table column names
 resultsTable.Properties.VariableNames = {'Zone', 'Bus', 'Timestamp', 'MWFromGrid', 'MWFromWind', 'WindpowerSold', 'WindGen', 'LMP'};
 
-%% Create directory for store OPF results and plots
-
+%% Create directory for store OPF results 
 resultDir = fullfile('Result_Hydrogen_Gen',num2str(year(timeStamp)),'OPF');
 createDir(resultDir);
 
@@ -436,11 +443,11 @@ createDir(resultDir);
 date = datestr(timeStamp);
 fullfilepath = fullfile(resultDir,"HydrogenResults_bus_"+date+".csv");
 writetable(resultsTable, fullfilepath)
-
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% ----------------------------------------END of CHANGES MADE -----------------------------------------%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+% %% Original Code - Baseline
 % for i = 1:height(renewableGen)
 %     if renewableGen.PgWindCap(i) ~= 0
 %         mpc.bus(renewableGen.BusID(i),PD) = mpc.bus(renewableGen.BusID(i),PD)...
@@ -451,22 +458,11 @@ writetable(resultsTable, fullfilepath)
 %             - otherCfTot*renewableGen.PgOtherCap(i);
 %     end
 % end
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-% for i = 1:height(renewableGen)
-%     if renewableGen.PgWindCap(i) ~= 0
-%         wind_generation = windCfTot * renewableGen.PgWindCap(i);
-% 
-%         mpc.bus(renewableGen.BusID(i),PD) = mpc.bus(renewableGen.BusID(i),PD)...
-%             - windCfTot*renewableGen.PgWindCap(i);
-%     end
-%     if renewableGen.PgOtherCap(i) ~= 0
-%         mpc.bus(renewableGen.BusID(i),PD) = mpc.bus(renewableGen.BusID(i),PD)...
-%             - otherCfTot*renewableGen.PgOtherCap(i);
-%     end
-% end
+
+
 % NYLoadTot = sum(mpc.bus(37:82,PD)); % Total load in old NPCC-140 case in NY
-% % NYLoadTot = sum(loadData.PD); % Total hourly load in NYISO
+% NYLoadTot = sum(loadData.PD); % Total hourly load in NYISO
 % NYLoadRatio = NYLoadTot/NYloadOld;
 
 if verbose
