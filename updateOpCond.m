@@ -369,20 +369,17 @@ for z = 1:length(zones)
                    %  - wind_after_hydrogen;
 
                    %% Inject excess wind generation into the grid (gen)
-                    newGenRow = zeros(1, 21); % Initialize a new generator row with 21 columns (zeros initially)
+                    genWind = zeros(1, 21); % Initialize a new generator row with 21 columns (zeros initially)
                     
                     % Set specific fields based on your requirements
-                    newGenRow(GEN_BUS) = hydrogen_plant_bus;             % Bus ID for the generator
-                    newGenRow(PG) = wind_after_hydrogen;                 % Generated power (wind surplus)
-                    newGenRow(4) = 9999;                             % Reactive power max
-                    newGenRow(5) = -9999;                             % Reactive power min
-                    newGenRow(6) = 1;                                   % Voltage setpoint
-                    newGenRow(7) = 100;                              % MVA base
-                    newGenRow(8) = 1;                           % Generator status (1 = in service)
-                    newGenRow(17:19) = inf;  
-
-                    % Add the new generator row to the `mpc.gen` matrix
-                    mpc.gen = [mpc.gen; newGenRow];
+                    genWind(GEN_BUS) = hydrogen_plant_bus;             % Bus ID for the generator
+                    genWind(PG) = wind_after_hydrogen;                 % Generated power (wind surplus)
+                    genWind(4) = 9999;                             % Reactive power max
+                    genWind(5) = -9999;                             % Reactive power min
+                    genWind(6) = 1;                                   % Voltage setpoint
+                    genWind(7) = 100;                              % MVA base
+                    genWind(8) = 1;                           % Generator status (1 = in service)
+                    genWind(17:19) = inf;  
 
                    fprintf('Surplus of %.2f MW injected into the grid at bus %d.\n', wind_after_hydrogen, hydrogen_plant_bus);
 
@@ -539,7 +536,9 @@ genHQ(PMIN) = -1100;
 genExt = [genExt;genHQ];
 numExt = size(genExt,1);
 
-mpc.gen = [genThermal;genNuclear;genHydro;genExt];
+%%%%%%%%%%%%%%%%%%  CHANGES MADE %%%%%%%%%%%%
+% mpc.gen = [genThermal;genNuclear;genHydro;genExt];
+mpc.gen = [genThermal;genNuclear;genHydro;genWind;genExt];
 
 if verbose
     fprintf("PJM: total generation: %.2f MW, total load: %.2f MW.\n",....
@@ -655,13 +654,24 @@ gencostExt = zeros(numExt,6);
 gencostExt(:,MODEL) = 2;
 gencostExt(:,NCOST) = 2;
 
+%%%%%%%%%%%%%%%%%%%%%% CHANGES MADE %%%%%%%%%%%%%%%%%%%%
+% Cost curve for Windfarm - copy from hydro
+gencostWind = zeros(1,6); % for only one wind farm
+gencostWind(:,MODEL) = 2;
+gencostWind(:,NCOST) = 2;
+gencostWind(:,COST) = 10*rand(1, 1);
+%%%%%%%%%%%%%%%%%%%%%% END OF CHANGES MADE %%%%%%%%%%%%%%%%%%%%
+
 gencostExt(isNEGen,COST) = zonalPrice.LBMP(zonalPrice.ZoneName == "NPX");
 gencostExt(isIESOGen,COST) = zonalPrice.LBMP(zonalPrice.ZoneName == "O H");
 gencostExt(isPJMGen,COST) = zonalPrice.LBMP(zonalPrice.ZoneName == "PJM");
 gencostExt(end,COST) = zonalPrice.LBMP(zonalPrice.ZoneName == "H Q");
 
+%%%%%%%%%%%%%%%%%%%%%% CHANGES MADE %%%%%%%%%%%%%%%%%%%%
 % add gencost to mpc
-mpcreduced.gencost = [gencostThermal;gencostNuclear;gencostHydro;gencostExt];
+% mpcreduced.gencost = [gencostThermal;gencostNuclear;gencostHydro;gencostExt];
+mpcreduced.gencost = [gencostThermal;gencostNuclear;gencostHydro;gencostWind;gencostExt];
+%%%%%%%%%%%%%%%%%%%%%% END OF CHANGES MADE %%%%%%%%%%%%%%%%%%%%
 
 fprintf("Finished adding generation cost matrix!\n");
 
@@ -671,7 +681,11 @@ gentypeThermal = string(genData.UnitType);
 gentypeNuclear = repelem("Nuclear",numNuclear)';
 gentypeHydro = repelem("Hydro",numHydro)';
 gentypeExt = repelem("Import",numExt)';
-mpcreduced.genfuel = cellstr([gentypeThermal;gentypeNuclear;gentypeHydro;gentypeExt]);
+%%%%%%%%%%%%%%%%%%%%%% CHANGES MADE %%%%%%%%%%%%%%%%%%%
+gentypeWind = repelem("Wind",1)';
+mpcreduced.genfuel = cellstr([gentypeThermal;gentypeNuclear;gentypeHydro;gentypeWind ;gentypeExt]);
+% mpcreduced.genfuel = cellstr([gentypeThermal;gentypeNuclear;gentypeHydro;gentypeExt]);
+%%%%%%%%%%%%%%%%%%%%%% END OF CHANGES MADE %%%%%%%%%%%%%%%%%%%%
 
 %% Save updated operation condtion
 if savedata
